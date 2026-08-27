@@ -1,0 +1,7 @@
+streamlit
+pandas
+numpy
+SQLAlchemy>=2.0.0
+psycopg2-binary
+pymysql
+cryptography
