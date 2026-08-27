@@ -3,13 +3,14 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, date
 from sqlalchemy import create_engine, text, inspect
 from urllib.parse import quote_plus
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import re
+import math
 
 st.set_page_config(
     page_title="inventro.ai | Autonomous Retail OS",
@@ -161,7 +162,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# One-Shot Money Rain Dispatcher
+# One-Shot Animation Script
 def trigger_cash_rain():
     cash_script = """
     <script>
@@ -204,59 +205,71 @@ def trigger_cash_rain():
     components.html(cash_script, height=0, width=0)
 
 # ==========================================
-# 1. Multi-Engine Database Gateway
+# 1. Multi-Engine Database Connection Gateway
 # ==========================================
+def clean_postgres_uri(raw_uri: str) -> str:
+    """Sanitizes PostgreSQL connection strings for psycopg2 driver compatibility."""
+    uri = raw_uri.strip().strip("'\"")
+    if uri.startswith("postgres://"):
+        uri = uri.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif uri.startswith("postgresql://") and not uri.startswith("postgresql+psycopg2://"):
+        uri = uri.replace("postgresql://", "postgresql+psycopg2://", 1)
+    uri = re.sub(r'[&?]channel_binding=[^&]*', '', uri)
+    if "?" not in uri and "&" in uri:
+        uri = uri.replace("&", "?", 1)
+    return uri
+
+@st.cache_resource(ttl=300)
 def create_db_connection(conn_mode, db_type, params):
     try:
         if conn_mode == "Connection URL / URI":
             raw_uri = params.get("uri", "").strip()
             if not raw_uri:
-                return None, False, "Please enter a connection URL."
+                return None, False, "Please enter your database connection URL to connect."
             
-            # Auto-format PostgreSQL dialects for SQLAlchemy + psycopg2
-            if raw_uri.startswith("postgres://"):
-                raw_uri = raw_uri.replace("postgres://", "postgresql+psycopg2://", 1)
-            elif raw_uri.startswith("postgresql://"):
-                raw_uri = raw_uri.replace("postgresql://", "postgresql+psycopg2://", 1)
-            
-            engine = create_engine(raw_uri, pool_pre_ping=True, pool_recycle=300)
+            clean_uri = clean_postgres_uri(raw_uri)
+            engine = create_engine(clean_uri, pool_pre_ping=True, pool_recycle=300)
             return engine, True, ""
         
         else:
+            host = params.get("host", "").strip()
+            if not host:
+                return None, False, "Please enter Host address."
+
+            port = str(params.get("port", "")).strip()
+            dbname = params.get("dbname", "").strip()
+            if not dbname:
+                return None, False, "Please enter Database Name."
+
             user = params.get("user", "").strip()
             raw_pwd = params.get("password", "")
             pwd = quote_plus(raw_pwd) if raw_pwd else ""
             pwd_str = f":{pwd}" if pwd else ""
-            host = params.get("host", "").strip()
-            port = str(params.get("port", "")).strip()
-            dbname = params.get("dbname", "").strip()
-
-            if not host:
-                return None, False, "Host cannot be empty."
+            port_str = f":{port}" if port else ""
 
             if db_type == "PostgreSQL":
                 if not user:
-                    return None, False, "Username required for PostgreSQL connection."
-                uri = f"postgresql+psycopg2://{user}{pwd_str}@{host}:{port}/{dbname}"
-                return create_engine(uri, pool_pre_ping=True, pool_recycle=300), True, ""
+                    return None, False, "Username required for PostgreSQL."
+                uri = f"postgresql+psycopg2://{user}{pwd_str}@{host}{port_str}/{dbname}"
+                return create_engine(clean_postgres_uri(uri), pool_pre_ping=True, pool_recycle=300), True, ""
                 
             elif db_type == "MySQL / MariaDB":
                 if not user:
                     user = "root"
-                uri = f"mysql+pymysql://{user}{pwd_str}@{host}:{port}/{dbname}"
+                uri = f"mysql+pymysql://{user}{pwd_str}@{host}{port_str}/{dbname}"
                 return create_engine(uri, pool_pre_ping=True, pool_recycle=300), True, ""
                 
             elif db_type == "Microsoft SQL Server":
                 driver = params.get("driver", "ODBC Driver 17 for SQL Server").replace(" ", "+")
-                uri = f"mssql+pyodbc://{user}{pwd_str}@{host}:{port}/{dbname}?driver={driver}"
+                uri = f"mssql+pyodbc://{user}{pwd_str}@{host}{port_str}/{dbname}?driver={driver}"
                 return create_engine(uri, pool_pre_ping=True, pool_recycle=300), True, ""
                 
-            return None, False, "Unknown engine selected."
+            return None, False, "Unsupported engine selected."
     except Exception as e:
         return None, False, str(e)
 
 def init_tables_safely(engine, db_type):
-    """Provisions empty standard retail schemas across SQL dialects."""
+    """Provisions standard retail inventory schemas across SQL dialects."""
     if engine is None:
         return False, "No active database connection."
 
@@ -264,7 +277,7 @@ def init_tables_safely(engine, db_type):
         auto_id = "INT AUTO_INCREMENT PRIMARY KEY"
     elif db_type == "Microsoft SQL Server":
         auto_id = "INT IDENTITY(1,1) PRIMARY KEY"
-    else:  # PostgreSQL / Neon default
+    else:
         auto_id = "SERIAL PRIMARY KEY"
 
     try:
@@ -305,7 +318,7 @@ def init_tables_safely(engine, db_type):
                 );
             """))
             conn.commit()
-        return True, "Schema provisioned successfully."
+        return True, "Standard retail schema provisioned successfully."
     except Exception as e:
         return False, str(e)
 
@@ -391,15 +404,8 @@ def run_analytics(df_sales, df_products):
     return pd.DataFrame(forecast_results)
 
 # ==========================================
-# 4. Sidebar Configuration
+# 4. Sidebar Configuration (Clean & 100% User Input)
 # ==========================================
-# Look for Streamlit Secrets dynamically (e.g. DATABASE_URL or NEON_DB_URI)
-secret_uri = ""
-if "DATABASE_URL" in st.secrets:
-    secret_uri = st.secrets["DATABASE_URL"]
-elif "NEON_DB_URI" in st.secrets:
-    secret_uri = st.secrets["NEON_DB_URI"]
-
 with st.sidebar:
     st.markdown("### 🗄️ Database Hub")
     conn_mode = st.radio(
@@ -414,10 +420,10 @@ with st.sidebar:
     if conn_mode == "Connection URL / URI":
         db_params["uri"] = st.text_input(
             "Database Connection URL:",
-            value=secret_uri,
-            placeholder="postgresql://user:password@host/neondb?sslmode=require",
+            value="",
+            placeholder="postgresql://username:password@hostname:5432/dbname",
             type="password",
-            help="Paste full connection string from Neon, Supabase, RDS, or local database"
+            help="Paste any PostgreSQL, MySQL, or cloud database connection string."
         )
     else:
         db_target = st.selectbox(
@@ -426,23 +432,23 @@ with st.sidebar:
         )
         
         if db_target == "PostgreSQL":
-            db_params["host"] = st.text_input("Host", placeholder="e.g. ep-xyz.neon.tech or localhost")
-            db_params["port"] = st.text_input("Port", "5432")
-            db_params["dbname"] = st.text_input("Database Name", "neondb?sslmode=require")
-            db_params["user"] = st.text_input("Username", placeholder="neondb_owner")
-            db_params["password"] = st.text_input("Password", type="password")
+            db_params["host"] = st.text_input("Host", value="", placeholder="e.g. localhost or ep-xyz.neon.tech")
+            db_params["port"] = st.text_input("Port", value="", placeholder="e.g. 5432")
+            db_params["dbname"] = st.text_input("Database Name", value="", placeholder="e.g. postgres or my_database")
+            db_params["user"] = st.text_input("Username", value="", placeholder="e.g. postgres or my_user")
+            db_params["password"] = st.text_input("Password", value="", type="password", placeholder="••••••••")
         elif db_target == "MySQL / MariaDB":
-            db_params["host"] = st.text_input("Host", "localhost")
-            db_params["port"] = st.text_input("Port", "3306")
-            db_params["dbname"] = st.text_input("Database Name", "inventro_db")
-            db_params["user"] = st.text_input("Username", "root")
-            db_params["password"] = st.text_input("Password", type="password")
+            db_params["host"] = st.text_input("Host", value="", placeholder="e.g. localhost or 127.0.0.1")
+            db_params["port"] = st.text_input("Port", value="", placeholder="e.g. 3306")
+            db_params["dbname"] = st.text_input("Database Name", value="", placeholder="e.g. retail_db")
+            db_params["user"] = st.text_input("Username", value="", placeholder="e.g. root")
+            db_params["password"] = st.text_input("Password", value="", type="password", placeholder="••••••••")
         elif db_target == "Microsoft SQL Server":
-            db_params["host"] = st.text_input("Host", "localhost")
-            db_params["port"] = st.text_input("Port", "1433")
-            db_params["dbname"] = st.text_input("Database Name", "master")
-            db_params["user"] = st.text_input("Username", "sa")
-            db_params["password"] = st.text_input("Password", type="password")
+            db_params["host"] = st.text_input("Host", value="", placeholder="e.g. localhost")
+            db_params["port"] = st.text_input("Port", value="", placeholder="e.g. 1433")
+            db_params["dbname"] = st.text_input("Database Name", value="", placeholder="e.g. master")
+            db_params["user"] = st.text_input("Username", value="", placeholder="e.g. sa")
+            db_params["password"] = st.text_input("Password", value="", type="password", placeholder="••••••••")
             db_params["driver"] = st.selectbox("ODBC Driver", ["ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server"])
 
     engine, conn_ok, err_msg = create_db_connection(conn_mode, db_target, db_params)
@@ -452,10 +458,10 @@ with st.sidebar:
     if conn_ok and engine:
         try:
             with engine.connect() as test_conn:
-                test_conn.execute(text("SELECT 1"))
+                test_conn.execute(text("SELECT 1;"))
                 inspector = inspect(engine)
                 detected_tables = inspector.get_table_names()
-            st.markdown(f"<div class='badge-live'><div class='pulse-dot'></div> Connected to Live Database</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='badge-live'><div class='pulse-dot'></div> Connected to Database</div>", unsafe_allow_html=True)
             is_connected = True
         except Exception as db_err:
             st.error(f"⚠️ Connection Failed: {db_err}")
@@ -465,10 +471,10 @@ with st.sidebar:
 
     st.divider()
     st.markdown("### 📧 SMTP Dispatch Gateway")
-    sender_email = st.text_input("Sender Email", value="")
-    sender_password = st.text_input("App Password", type="password", help="16-character Google App Password")
-    smtp_server = st.text_input("SMTP Server", "smtp.gmail.com")
-    smtp_port = st.number_input("SMTP Port", value=587)
+    sender_email = st.text_input("Sender Email", value="", placeholder="procurement@company.com")
+    sender_password = st.text_input("App Password", value="", type="password", placeholder="16-character app password")
+    smtp_server = st.text_input("SMTP Server", value="", placeholder="smtp.gmail.com")
+    smtp_port = st.number_input("SMTP Port", min_value=1, max_value=65535, value=587)
 
 # Safe Data Retrieval
 df_products = pd.DataFrame()
@@ -495,7 +501,7 @@ expiring_items = forecast_df[forecast_df["Shelf Life"] <= 7] if not forecast_df.
 # ==========================================
 header_col1, header_col2 = st.columns([3, 1])
 with header_col1:
-    st.markdown(f"""
+    st.markdown("""
     <div style='display: flex; align-items: center; gap: 14px; margin-top: 4px;'>
         <h1 style='margin: 0; font-size: 2.3rem; font-weight: 800; letter-spacing: -0.04em;'>⚡ inventro.ai</h1>
         <div class='badge-live'><div class='pulse-dot'></div> AUTONOMOUS OS</div>
@@ -507,9 +513,10 @@ with header_col1:
 with header_col2:
     st.write("")
     if st.button("🔄 Sync Database Feed", use_container_width=True, type="primary"):
+        st.cache_resource.clear()
         st.rerun()
 
-# 4 High-Tech KPI Cards
+# 4 KPI Cards
 c1, c2, c3, c4 = st.columns(4)
 with c1:
     st.markdown(f"""
@@ -639,11 +646,11 @@ with tab_inout:
                             )
                             conn.execute(
                                 text("INSERT INTO sales_ledger (transaction_date, sku, product_name, category, quantity_sold, is_weekend) VALUES (:dt, :sku, :name, :cat, 1, 0)"),
-                                {"dt": str(datetime.today().date()), "sku": scanned_sku, "name": prod_name, "cat": prod_cat}
+                                {"dt": str(date.today()), "sku": scanned_sku, "name": prod_name, "cat": prod_cat}
                             )
                             conn.execute(
                                 text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'POS_SCAN', 1, 'Scanned at Checkout Register')"),
-                                {"ts": str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")), "sku": scanned_sku}
+                                {"ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "sku": scanned_sku}
                             )
                             conn.commit()
                             st.success(f"⚡ Billed 1 unit of **{prod_name}** (`{scanned_sku}`). Remaining stock: {curr_stock - 1}")
@@ -662,7 +669,7 @@ with tab_inout:
                 
                 move_type = st.radio("Movement Type:", ["STOCK_OUT (POS Sale / Checkout)", "STOCK_IN (Receiving)"], horizontal=True)
                 qty = st.number_input("Units Quantity:", min_value=1, max_value=500, value=10)
-                note = st.text_input("Audit Note:", value="Manual terminal adjustment")
+                note = st.text_input("Audit Note:", value="", placeholder="e.g. Manual inventory intake")
                 
                 if st.button("💾 Commit Transaction to Database", type="secondary", use_container_width=True):
                     delta = qty if move_type == "STOCK_IN (Receiving)" else -qty
@@ -734,7 +741,7 @@ with tab_matrix:
 with tab_db_hub:
     st.subheader("🔌 Database Infrastructure Management")
     if not is_connected:
-        st.error("⚠️ No database connection. Please enter valid host credentials or URI in the sidebar.")
+        st.error("⚠️ No database connection. Please enter your database credentials or URI in the sidebar.")
     else:
         col_d1, col_d2 = st.columns([1, 1])
         with col_d1:
@@ -753,14 +760,14 @@ with tab_db_hub:
             with st.form("new_sku_form", clear_on_submit=True):
                 f_sku = st.text_input("SKU Code*", placeholder="e.g. SKU-COFFEE-01")
                 f_name = st.text_input("Product Name*", placeholder="e.g. Arabica Coffee Beans 500g")
-                f_cat = st.text_input("Category", value="General")
-                f_stock = st.number_input("Initial Stock Units", min_value=0, value=50)
-                f_lead = st.number_input("Lead Time (Days)", min_value=1, value=3)
-                f_moq = st.number_input("Vendor MOQ", min_value=1, value=20)
-                f_pack = st.number_input("Pack Size", min_value=1, value=10)
-                f_vendor = st.text_input("Vendor Name", placeholder="e.g. BeanCorp Global")
-                f_email = st.text_input("Vendor Email", placeholder="orders@beancorp.com")
-                f_exp = st.number_input("Shelf Life Days", min_value=1, value=180)
+                f_cat = st.text_input("Category", value="", placeholder="e.g. Beverages")
+                f_stock = st.number_input("Initial Stock Units", min_value=0, value=0)
+                f_lead = st.number_input("Lead Time (Days)", min_value=1, value=2)
+                f_moq = st.number_input("Vendor MOQ", min_value=1, value=10)
+                f_pack = st.number_input("Pack Size", min_value=1, value=1)
+                f_vendor = st.text_input("Vendor Name", placeholder="e.g. Supplier Corp")
+                f_email = st.text_input("Vendor Email", placeholder="orders@supplier.com")
+                f_exp = st.number_input("Shelf Life Days", min_value=1, value=30)
                 
                 if st.form_submit_button("➕ Insert SKU into Database"):
                     if f_sku and f_name:
@@ -770,7 +777,7 @@ with tab_db_hub:
                                     INSERT INTO products_master (sku, name, category, lead_time, moq, pack_size, vendor, email, stock, expiry_days)
                                     VALUES (:sku, :name, :cat, :lead, :moq, :pack, :vendor, :email, :stock, :exp)
                                 """), {
-                                    "sku": f_sku.strip(), "name": f_name.strip(), "cat": f_cat.strip(),
+                                    "sku": f_sku.strip(), "name": f_name.strip(), "cat": f_cat.strip() if f_cat else "General",
                                     "lead": int(f_lead), "moq": int(f_moq), "pack": int(f_pack),
                                     "vendor": f_vendor.strip(), "email": f_email.strip(), "stock": int(f_stock),
                                     "exp": int(f_exp)
@@ -785,11 +792,14 @@ with tab_db_hub:
                     
         with col_d2:
             st.markdown("#### 🔍 Direct SQL Query Terminal")
-            custom_sql = st.text_area("Execute Query on Active DB:", value="SELECT * FROM products_master LIMIT 10;")
+            custom_sql = st.text_area("Execute Query on Active DB:", placeholder="SELECT * FROM products_master LIMIT 10;")
             if st.button("⚡ Execute Query"):
-                try:
-                    with engine.connect() as conn:
-                        query_res = pd.read_sql(text(custom_sql), conn)
-                        st.dataframe(query_res, use_container_width=True)
-                except Exception as e:
-                    st.error(f"SQL Error: {e}")
+                if custom_sql and custom_sql.strip():
+                    try:
+                        with engine.connect() as conn:
+                            query_res = pd.read_sql(text(custom_sql), conn)
+                            st.dataframe(query_res, use_container_width=True)
+                    except Exception as e:
+                        st.error(f"SQL Error: {e}")
+                else:
+                    st.warning("Please enter a SQL statement.")
