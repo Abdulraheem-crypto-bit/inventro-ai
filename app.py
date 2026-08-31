@@ -1,9 +1,8 @@
 import os
 import re
-import json
 import math
 import smtplib
-from datetime import datetime, timedelta
+from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -13,7 +12,7 @@ import numpy as np
 from sqlalchemy import create_engine, text, inspect
 
 # ==========================================
-# PAGE CONFIGURATION & STYLING
+# PAGE CONFIGURATION & DARK THEME
 # ==========================================
 st.set_page_config(
     page_title="inventro.ai | Autonomous Retail OS",
@@ -32,38 +31,35 @@ st.markdown("""
     code, pre {
         font-family: 'JetBrains Mono', monospace !important;
     }
-    .agent-card {
-        background: rgba(99, 102, 241, 0.05);
-        border: 1px solid rgba(99, 102, 241, 0.2);
+    .agent-console {
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(99, 102, 241, 0.3);
         border-radius: 12px;
-        padding: 16px 20px;
-        margin-bottom: 15px;
+        padding: 20px 24px;
+        margin-bottom: 20px;
     }
-    .eda-card {
-        background: rgba(16, 185, 129, 0.05);
-        border: 1px solid rgba(16, 185, 129, 0.2);
-        border-radius: 12px;
-        padding: 16px 20px;
-        margin-bottom: 15px;
-    }
-    .agent-thought {
+    .agent-stream {
         font-family: 'JetBrains Mono', monospace;
-        font-size: 0.85rem;
-        color: #94a3b8;
-        background: rgba(15, 23, 42, 0.6);
-        padding: 12px;
-        border-radius: 8px;
-        border-left: 3px solid #6366f1;
-        margin-bottom: 10px;
+        font-size: 0.88rem;
+        color: #c7d2fe;
+        line-height: 1.6;
+        white-space: pre-wrap;
+    }
+    .badge-critical {
+        background-color: rgba(239, 68, 68, 0.2);
+        color: #f87171;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-weight: 600;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# DYNAMIC SCHEMA RESOLUTION
+# DYNAMIC SCHEMA RESOLUTION ENGINE
 # ==========================================
 COLUMN_SYNONYMS = {
-    "sku": ["sku", "product_id", "productid", "item_id", "itemid", "item_code", "itemcode", "barcode", "code", "prod_id"],
+    "sku": ["sku", "product_id", "productid", "item_id", "itemid", "item_code", "itemcode", "barcode", "code", "prod_id", "id"],
     "name": ["name", "product_name", "productname", "item_name", "itemname", "title", "description", "product", "article"],
     "category": ["category", "cat", "department", "dept", "product_type", "type", "group", "segment"],
     "stock": ["stock", "current_stock", "qty", "quantity", "inventory", "on_hand", "stock_qty", "units_in_stock", "qty_on_hand"],
@@ -77,7 +73,7 @@ COLUMN_SYNONYMS = {
     "transaction_date": ["transaction_date", "timestamp", "date", "sale_date", "txn_date", "created_at"]
 }
 
-def clean_name(s: str) -> str:
+def clean_str(s: str) -> str:
     return re.sub(r'[\s_\-]+', '', str(s)).lower()
 
 def resolve_and_normalize(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
@@ -86,11 +82,11 @@ def resolve_and_normalize(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     
     normalized_df = df.copy()
     detected_mapping = {}
-    cleaned_df_cols = {clean_name(c): c for c in df.columns}
+    cleaned_df_cols = {clean_str(c): c for c in df.columns}
 
     for canonical_key, synonyms in COLUMN_SYNONYMS.items():
         for syn in synonyms:
-            cleaned_syn = clean_name(syn)
+            cleaned_syn = clean_str(syn)
             if cleaned_syn in cleaned_df_cols:
                 original_col = cleaned_df_cols[cleaned_syn]
                 detected_mapping[canonical_key] = original_col
@@ -99,13 +95,13 @@ def resolve_and_normalize(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
     defaults = {
         "sku": [f"SKU_{i+1:03d}" for i in range(len(normalized_df))],
-        "name": "Unnamed Item",
-        "category": "General",
+        "name": "Item",
+        "category": "Uncategorized",
         "stock": 0,
         "lead_time": 2,
-        "moq": 10,
+        "moq": 1,
         "pack_size": 1,
-        "vendor": "General Supplier",
+        "vendor": "Unassigned",
         "email": "",
         "expiry_days": 30,
         "quantity_sold": 1
@@ -117,7 +113,7 @@ def resolve_and_normalize(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     return normalized_df, detected_mapping
 
 # ==========================================
-# DATABASE ENGINE WITH URL SANITIZATION
+# DATABASE CONNECTION HANDLER
 # ==========================================
 @st.cache_resource(show_spinner=False)
 def get_db_engine(connection_string: str):
@@ -125,7 +121,6 @@ def get_db_engine(connection_string: str):
         return None
     try:
         clean_uri = connection_string.strip()
-        # Clean duplicate parameter injections
         clean_uri = clean_uri.replace("require?sslmode=require", "require")
         if clean_uri.count("?sslmode=require") > 1:
             clean_uri = clean_uri.split("?sslmode=require")[0] + "?sslmode=require"
@@ -139,29 +134,29 @@ def get_db_engine(connection_string: str):
         return None
 
 # ==========================================
-# SIDEBAR CONTROLS
+# SIDEBAR CONFIGURATION
 # ==========================================
 with st.sidebar:
     st.markdown("### ⚡ **inventro.ai**")
-    st.caption("Autonomous Retail Inventory Engine")
+    st.caption("Autonomous Retail Operating System")
     st.divider()
 
     st.markdown("**1. Database Configuration**")
-    connection_mode = st.radio("Connect via:", ["Connection URL / URI", "Host & Credentials"], horizontal=True)
+    connection_mode = st.radio("Mode:", ["Connection URL / URI", "Host & Credentials"], horizontal=True)
 
     db_uri = ""
     if connection_mode == "Connection URL / URI":
         db_uri = st.text_input(
             "Database Connection URL",
-            placeholder="postgresql://user:pass@host/db?sslmode=require",
+            placeholder="postgresql://user:pass@host:5432/dbname?sslmode=require",
             type="password"
         )
     else:
-        db_dialect = st.selectbox("Platform Engine", ["PostgreSQL", "MySQL", "MS SQL Server", "SQLite"])
-        db_host = st.text_input("Host", placeholder="ep-xyz.aws.neon.tech")
+        db_dialect = st.selectbox("Engine", ["PostgreSQL", "MySQL", "MS SQL Server", "SQLite"])
+        db_host = st.text_input("Host", placeholder="e.g. ep-xyz.aws.neon.tech")
         db_port = st.text_input("Port", placeholder="5432")
-        db_name = st.text_input("Database Name", value="neondb")
-        db_user = st.text_input("Username", placeholder="neondb_owner")
+        db_name = st.text_input("Database Name", placeholder="dbname")
+        db_user = st.text_input("Username", placeholder="db_user")
         db_pass = st.text_input("Password", placeholder="••••••••", type="password")
 
         if db_host and db_name:
@@ -177,9 +172,9 @@ with st.sidebar:
 
     st.divider()
     st.markdown("**2. SMTP Vendor Dispatcher**")
-    smtp_server = st.text_input("SMTP Server", value="smtp.gmail.com")
-    smtp_port = st.number_input("SMTP Port", value=587)
-    smtp_sender = st.text_input("Sender Email", placeholder="orders@store.com")
+    smtp_server = st.text_input("SMTP Server", placeholder="smtp.gmail.com")
+    smtp_port = st.number_input("SMTP Port", min_value=1, max_value=65535, value=587)
+    smtp_sender = st.text_input("Sender Email", placeholder="your-email@domain.com")
     smtp_password = st.text_input("App Password", placeholder="••••••••", type="password")
 
     sync_btn = st.button("🔄 Sync Database Feed", use_container_width=True)
@@ -193,7 +188,7 @@ else:
     st.sidebar.warning("⚪ Awaiting Connection")
 
 # ==========================================
-# DATA INGESTION & AUTO NORMALIZATION
+# INGESTION & AUTO-NORMALIZATION
 # ==========================================
 raw_products, raw_sales, raw_movements = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
@@ -203,25 +198,25 @@ if is_connected:
             inspector = inspect(engine)
             tables = inspector.get_table_names()
             
-            prod_target = next((t for t in tables if "product" in t.lower() or "item" in t.lower()), "products_master")
-            if prod_target in tables:
+            prod_target = next((t for t in tables if "product" in t.lower() or "item" in t.lower() or "inventory" in t.lower()), None)
+            if prod_target:
                 raw_products = pd.read_sql(text(f"SELECT * FROM {prod_target}"), conn)
             
-            sales_target = next((t for t in tables if "sale" in t.lower() or "order" in t.lower()), "sales_ledger")
-            if sales_target in tables:
+            sales_target = next((t for t in tables if "sale" in t.lower() or "order" in t.lower() or "txn" in t.lower()), None)
+            if sales_target:
                 raw_sales = pd.read_sql(text(f"SELECT * FROM {sales_target} ORDER BY 1 DESC LIMIT 2000"), conn)
 
-            move_target = next((t for t in tables if "movement" in t.lower() or "audit" in t.lower()), "stock_movements")
-            if move_target in tables:
+            move_target = next((t for t in tables if "movement" in t.lower() or "audit" in t.lower() or "log" in t.lower()), None)
+            if move_target:
                 raw_movements = pd.read_sql(text(f"SELECT * FROM {move_target} ORDER BY 1 DESC LIMIT 50"), conn)
     except Exception as e:
-        st.error(f"Data Fetch Error: {e}")
+        st.error(f"Data Fetch Notice: {e}")
 
 df_products, prod_map = resolve_and_normalize(raw_products)
 df_sales, sales_map = resolve_and_normalize(raw_sales)
 
 # ==========================================
-# STATISTICAL ROP COMPUTATION
+# STATISTICAL LEARNING & STOCHASTIC ROP
 # ==========================================
 def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.DataFrame:
     if products_df.empty:
@@ -236,13 +231,14 @@ def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.D
         ).reset_index()
         matrix = matrix.merge(velocity_stats, on="sku", how="left")
     else:
-        matrix["daily_velocity"] = 3.0
-        matrix["daily_volatility"] = 1.0
+        matrix["daily_velocity"] = 1.0
+        matrix["daily_volatility"] = 0.5
 
-    matrix["daily_velocity"] = matrix["daily_velocity"].fillna(2.0).clip(lower=0.1)
-    matrix["daily_volatility"] = matrix["daily_volatility"].fillna(0.8).clip(lower=0.1)
+    matrix["daily_velocity"] = matrix["daily_velocity"].fillna(1.0).clip(lower=0.1)
+    matrix["daily_volatility"] = matrix["daily_volatility"].fillna(0.5).clip(lower=0.1)
     
-    Z = 1.65  # 95% Confidence Cycle Service Level
+    # Gaussian 95% Confidence Interval (Z = 1.65)
+    Z = 1.65
     matrix["safety_stock"] = np.ceil(Z * matrix["daily_volatility"] * np.sqrt(matrix["lead_time"].astype(float))).astype(int)
     matrix["rop"] = np.ceil((matrix["daily_velocity"] * matrix["lead_time"].astype(float)) + matrix["safety_stock"]).astype(int)
     matrix["days_runway"] = np.round(matrix["stock"] / matrix["daily_velocity"], 1)
@@ -254,7 +250,7 @@ def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.D
             deficit = max(0, (2 * row["rop"]) - row["stock"])
             pack_mult = max(1, int(row.get("pack_size", 1)))
             batch = math.ceil(deficit / pack_mult) * pack_mult
-            return max(int(row.get("moq", 10)), batch)
+            return max(int(row.get("moq", 1)), batch)
         return 0
 
     matrix["suggested_po_qty"] = matrix.apply(calc_po, axis=1)
@@ -263,195 +259,90 @@ def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.D
 analytics_df = compute_analytics(df_products, df_sales)
 
 # ==========================================
-# MAIN INTERFACE WITH 6 DEDICATED TABS
+# MAIN INTERFACE
 # ==========================================
 st.title("inventro.ai")
 st.caption("Autonomous Retail Operating System & Dynamic Reorder Engine")
 
-tab_eda, tab_analytics, tab_agent, tab_pos, tab_dispatcher, tab_infra = st.tabs([
-    "📈 Instant Automated EDA Report",
-    "📊 Catalog & Analytics Matrix",
+tab_agent, tab_analytics, tab_pos, tab_dispatcher, tab_infra = st.tabs([
     "🤖 Autonomous AI Supply Agent",
+    "📊 Catalog & Analytics Matrix",
     "⚡ POS Transaction Scanner",
     "✉️ Autonomous PO Dispatcher",
     "🔌 Database Infrastructure Terminal"
 ])
 
 # ------------------------------------------
-# TAB 1: INSTANT AUTOMATED EDA REPORT
-# ------------------------------------------
-with tab_eda:
-    st.markdown("#### **📈 Automated Exploratory Data Analysis (EDA) Report**")
-    st.caption("Instant statistical profile, distribution diagnostics, and data quality evaluation executed directly on incoming database records.")
-    
-    if raw_products.empty and raw_sales.empty:
-        st.warning("⚠️ No data available to profile. Connect your database or provision sample schemas in the Infrastructure tab.")
-    else:
-        # 1. Dataset Health Summary Bar
-        eda_c1, eda_c2, eda_c3, eda_c4 = st.columns(4)
-        
-        total_records = len(raw_products) + len(raw_sales) + len(raw_movements)
-        missing_cells = raw_products.isnull().sum().sum() + raw_sales.isnull().sum().sum()
-        total_cells = (raw_products.size + raw_sales.size) or 1
-        completeness = round(((total_cells - missing_cells) / total_cells) * 100, 2)
-        unique_categories = analytics_df["category"].nunique() if not analytics_df.empty else 0
-        total_inventory_units = int(analytics_df["stock"].sum()) if not analytics_df.empty else 0
-
-        with eda_c1:
-            st.metric("Total Ingested Records", f"{total_records:,}")
-        with eda_c2:
-            st.metric("Data Completeness Rate", f"{completeness}%")
-        with eda_c3:
-            st.metric("Active Categories", unique_categories)
-        with eda_c4:
-            st.metric("Total Units in Fleet", f"{total_inventory_units:,}")
-
-        # 2. Executive Synthesis Block
-        st.markdown('<div class="eda-card">', unsafe_allow_html=True)
-        st.markdown("### **📋 Executive Dataset Diagnostic Synthesis**")
-        
-        # Determine dominant characteristics
-        top_cat = analytics_df["category"].mode()[0] if not analytics_df.empty else "N/A"
-        avg_stock = round(analytics_df["stock"].mean(), 1) if not analytics_df.empty else 0
-        avg_lead = round(analytics_df["lead_time"].mean(), 1) if not analytics_df.empty else 0
-        stock_std = round(analytics_df["stock"].std(), 2) if not analytics_df.empty else 0
-
-        synthesis_text = f"""
-* **Structural Integrity:** Ingested **{len(raw_products)} master SKUs** and **{len(raw_sales)} historical sales ledger entries**. Zero fatal schema collisions detected.
-* **Inventory Balance:** Mean physical stock per SKU is **{avg_stock} units** with a standard deviation ($\sigma$) of **{stock_std}**.
-* **Category Dominance:** **{top_cat}** represents the primary operational category across catalog offerings.
-* **Supplier Dynamics:** Average supplier lead turnaround time is **{avg_lead} days** across all vendor pipelines.
-* **Data Cleanliness Score:** **{completeness}%** field populated rate. Missing operational parameters were safely backfilled by canonical defaults.
-"""
-        st.markdown(synthesis_text)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # 3. Parametric Statistical Distributions Table
-        st.markdown("##### **1. Descriptive Numerical Statistics**")
-        if not analytics_df.empty:
-            num_cols = ["stock", "lead_time", "moq", "pack_size", "expiry_days", "daily_velocity", "safety_stock", "rop"]
-            valid_num_cols = [c for c in num_cols if c in analytics_df.columns]
-            
-            stats_df = analytics_df[valid_num_cols].describe().T[["count", "mean", "std", "min", "25%", "50%", "75%", "max"]]
-            stats_df = stats_df.rename(columns={"50%": "median"})
-            st.dataframe(stats_df.round(2), use_container_width=True)
-
-        # 4. Visual Distributions & Category Breakdowns
-        st.markdown("##### **2. Category & Velocity Distributions**")
-        v_col1, v_col2 = st.columns(2)
-        
-        with v_col1:
-            st.markdown("**Stock Volume by Category**")
-            if not analytics_df.empty:
-                cat_stock = analytics_df.groupby("category")["stock"].sum().reset_index()
-                st.bar_chart(cat_stock.set_index("category"))
-
-        with v_col2:
-            st.markdown("**Daily Sales Consumption Velocity by SKU**")
-            if not analytics_df.empty:
-                sku_velocity = analytics_df.set_index("sku")["daily_velocity"].head(10)
-                st.bar_chart(sku_velocity)
-
-        # 5. Fast-Movers vs. Dead Stock Matrix
-        st.markdown("##### **3. Velocity Quadrant (Fast-Moving vs. Slow / Dead Stock)**")
-        q_col1, q_col2 = st.columns(2)
-        
-        with q_col1:
-            st.markdown("**🔥 Top Fast-Moving SKUs**")
-            if not analytics_df.empty:
-                fast_movers = analytics_df.sort_values(by="daily_velocity", ascending=False)[["sku", "name", "daily_velocity", "stock", "days_runway"]].head(5)
-                st.dataframe(fast_movers, use_container_width=True, hide_index=True)
-
-        with q_col2:
-            st.markdown("**🧊 Slow-Moving / Dead Stock Candidates**")
-            if not analytics_df.empty:
-                slow_movers = analytics_df.sort_values(by="daily_velocity", ascending=True)[["sku", "name", "daily_velocity", "stock", "days_runway"]].head(5)
-                st.dataframe(slow_movers, use_container_width=True, hide_index=True)
-
-# ------------------------------------------
-# TAB 2: CATALOG & ANALYTICS MATRIX
-# ------------------------------------------
-with tab_analytics:
-    if analytics_df.empty:
-        st.info("No active catalog data detected. Connect your database or provision sample schemas in the Infrastructure tab.")
-    else:
-        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-        restock_count = len(analytics_df[analytics_df["reorder_status"] == "RESTOCK NEEDED"])
-        expiry_count = len(analytics_df[analytics_df["expiry_risk"] == "HIGH EXPIRY RISK"])
-        
-        with kpi1:
-            st.metric("Monitored SKUs", len(analytics_df))
-        with kpi2:
-            st.metric("Restock Breaches (Stock ≤ ROP)", restock_count, delta=-restock_count if restock_count > 0 else 0, delta_color="inverse")
-        with kpi3:
-            st.metric("Perishable Risks (≤ 7 Days)", expiry_count, delta=-expiry_count if expiry_count > 0 else 0, delta_color="inverse")
-        with kpi4:
-            st.metric("Average Runway", f"{round(analytics_df['days_runway'].mean(), 1)} Days")
-
-        display_cols = ["sku", "name", "category", "stock", "lead_time", "daily_velocity", "safety_stock", "rop", "days_runway", "reorder_status", "expiry_days", "suggested_po_qty", "vendor"]
-        available_display_cols = [c for c in display_cols if c in analytics_df.columns]
-        
-        st.dataframe(analytics_df[available_display_cols], use_container_width=True, hide_index=True)
-
-# ------------------------------------------
-# TAB 3: AUTONOMOUS AI SUPPLY AGENT
+# TAB 1: AUTONOMOUS AI AGENT & INTEGRATED EDA
 # ------------------------------------------
 with tab_agent:
-    st.markdown("#### **🤖 Autonomous AI Inventory Agent & Copilot**")
-    st.caption("Self-directed supply chain diagnostic loop analyzing stockout vectors, lead times, and decay risks in real time.")
+    st.markdown("#### **🤖 Autonomous AI Supply Agent & Integrated EDA Engine**")
+    st.caption("The agent automatically profiles incoming database records, executes exploratory data analysis (EDA), identifies inventory anomalies, and computes dynamic restock directives.")
     
     if analytics_df.empty:
-        st.warning("Agent is idle. Connect a database to allow the agent to inspect inventory streams.")
+        st.warning("Agent is currently idle. Connect your database or provision tables in the Infrastructure tab to begin.")
     else:
         critical_items = analytics_df[analytics_df["reorder_status"] == "RESTOCK NEEDED"]
         perishable_items = analytics_df[analytics_df["expiry_risk"] == "HIGH EXPIRY RISK"]
         overstock_items = analytics_df[analytics_df["days_runway"] > 45]
-
-        st.markdown('<div class="agent-card">', unsafe_allow_html=True)
-        st.markdown("### **🧠 Agent Thought & Execution Stream**")
         
-        thought_log = f"""
-[OBSERVATION] Scanning {len(analytics_df)} registered SKUs across live transaction channels.
-[ANALYSIS] {len(critical_items)} SKUs breached statistical dynamic Reorder Points (ROP @ 95% Confidence, Z=1.65).
-[RISK CHECK] {len(perishable_items)} SKUs are within the critical 7-day shelf-life decay horizon.
-[DECISION] Prescribing immediate PO batches with MOQ constraint validation for suppliers: {', '.join(critical_items['vendor'].unique()) if not critical_items.empty else 'None'}.
-[STATUS] Closed-loop autonomous monitoring active. No manual intervention required.
-"""
-        st.markdown(f'<div class="agent-thought">{thought_log.strip()}</div>', unsafe_allow_html=True)
+        # In-Memory Automated EDA Computations
+        missing_cells = raw_products.isnull().sum().sum() + raw_sales.isnull().sum().sum()
+        total_cells = (raw_products.size + raw_sales.size) or 1
+        completeness = round(((total_cells - missing_cells) / total_cells) * 100, 2)
+        top_category = analytics_df["category"].mode()[0] if not analytics_df.empty else "General"
+        avg_lead_time = round(analytics_df["lead_time"].mean(), 1)
+        total_units = int(analytics_df["stock"].sum())
+        avg_fleet_runway = round(analytics_df["days_runway"].mean(), 1)
+        fast_movers = analytics_df.sort_values(by="daily_velocity", ascending=False).head(3)
+        fast_movers_str = ", ".join([f"{r['name']} ({r['daily_velocity']:.1f}/day)" for _, r in fast_movers.iterrows()])
+
+        # Unified Agent Autonomous Thought & EDA Stream
+        agent_briefing = f"""[PHASE 1: AUTONOMOUS EXPLORATORY DATA ANALYSIS (EDA)]
+--------------------------------------------------------------------------------
+• Ingestion Audit: Profiled {len(raw_products)} master catalog items & {len(raw_sales)} historical sales ledger entries.
+• Data Health: {completeness}% field completeness score across normalized attributes ({len(prod_map)} mapped canonical keys).
+• Total Volume: {total_units:,} physical units active in fleet across {analytics_df['category'].nunique()} distinct product categories.
+• Dominant Department: '{top_category}' represents the primary catalog concentration.
+• Velocity Profile: Top fast-moving items -> {fast_movers_str}.
+• Supply Chain Dynamics: Average vendor turnaround lead time is {avg_lead_time} days.
+
+[PHASE 2: STOCHASTIC PROBABILISTIC MODELING & DEMAND VOLATILITY]
+--------------------------------------------------------------------------------
+• Service Level Objective: 95% Confidence Interval (Gaussian Normal Distribution Z = 1.65).
+• Reorder Point Breaches: {len(critical_items)} of {len(analytics_df)} SKUs have breached dynamic safety thresholds (Stock ≤ ROP).
+• Spoilage Vectors: {len(perishable_items)} SKUs are within the critical 7-day shelf-life decay horizon.
+• Fleet Runway: Average inventory runway across all active lines is {avg_fleet_runway} days.
+
+[PHASE 3: PRESCRIPTIVE AUTONOMOUS DECISION DIRECTIVES]
+--------------------------------------------------------------------------------
+• Replenishment Action: Prescribed restock batches satisfying Minimum Order Quantities (MOQ) and Case Multipliers.
+• Suppliers Queued for Dispatch: {', '.join(critical_items['vendor'].unique()) if not critical_items.empty else 'None (All lines operating safely)'}.
+• Operational Status: Continuous closed-loop autonomous monitoring active."""
+
+        st.markdown('<div class="agent-console">', unsafe_allow_html=True)
+        st.markdown("### **🧠 Autonomous Agent Execution & Diagnostic Stream**")
+        st.markdown(f'<div class="agent-stream">{agent_briefing}</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        st.markdown("#### **⚡ Agent Proactive Prescriptions**")
-        agent_col1, agent_col2, agent_col3 = st.columns(3)
+        # Agent Prescriptions List
+        if not critical_items.empty:
+            st.markdown("##### **🚨 Active Restock Directives Identified by Agent**")
+            for _, r in critical_items.iterrows():
+                st.error(f"**{r['name']}** (`{r['sku']}`) — Stock: **{r['stock']} units** (ROP Threshold: {r['rop']}) ➔ **Prescribed Restock: +{r['suggested_po_qty']} units** from *{r['vendor']}*")
+        else:
+            st.success("✨ All product lines are operating within optimal safety stock thresholds.")
 
-        with agent_col1:
-            st.markdown(f"**🚨 Urgent Replenishments ({len(critical_items)})**")
-            if not critical_items.empty:
-                for _, r in critical_items.iterrows():
-                    st.error(f"**{r['name']}** (`{r['sku']}`)\n- Stock: {r['stock']} / ROP: {r['rop']}\n- Order: **+{r['suggested_po_qty']} units** from *{r['vendor']}*")
-            else:
-                st.success("No stockout risks detected.")
-
-        with agent_col2:
-            st.markdown(f"**⏳ Expiry & Spoilage Vectors ({len(perishable_items)})**")
-            if not perishable_items.empty:
-                for _, r in perishable_items.iterrows():
-                    st.warning(f"**{r['name']}** (`{r['sku']}`)\n- Shelf Life: **{r['expiry_days']} days left**\n- Clearance Runway: {r['days_runway']} days")
-            else:
-                st.success("Zero high-risk perishable items.")
-
-        with agent_col3:
-            st.markdown(f"**📦 Working Capital Trapped ({len(overstock_items)})**")
-            if not overstock_items.empty:
-                for _, r in overstock_items.iterrows():
-                    st.info(f"**{r['name']}** (`{r['sku']}`)\n- Runway: **{r['days_runway']} days**\n- Recommendation: Pause replenishment.")
-            else:
-                st.success("Healthy inventory turnover fleet-wide.")
+        if not perishable_items.empty:
+            st.markdown("##### **⏳ Urgent Perishability & Spoilage Warnings**")
+            for _, r in perishable_items.iterrows():
+                st.warning(f"**{r['name']}** (`{r['sku']}`) — **{r['expiry_days']} days until expiration** (On-hand: {r['stock']} units | Runway: {r['days_runway']} days)")
 
         st.divider()
 
-        # Copilot Natural Language Query
+        # Copilot Natural Language Interface
         st.markdown("#### **💬 Query Inventory AI Copilot**")
-        user_query = st.text_input("Ask anything about your stock, demand, or suppliers:", placeholder="e.g. Which item will run out of stock first?")
+        user_query = st.text_input("Ask the agent anything about stock runway, demand velocity, or restock actions:", placeholder="e.g. Which item will run out of stock first?")
         
         if user_query:
             q = user_query.lower()
@@ -478,7 +369,19 @@ with tab_agent:
                 st.markdown(f"👉 **Fleet Summary:** Monitoring {len(analytics_df)} SKUs. {len(critical_items)} require reordering, and {len(perishable_items)} are near shelf-life expiry. Average fleet runway is {round(analytics_df['days_runway'].mean(), 1)} days.")
 
 # ------------------------------------------
-# TAB 4: POS TRANSACTION SCANNER
+# TAB 2: CATALOG & ANALYTICS MATRIX
+# ------------------------------------------
+with tab_analytics:
+    if analytics_df.empty:
+        st.info("No active catalog data detected.")
+    else:
+        st.markdown("#### **Dynamic ROP & Statistical Safety Stock Matrix**")
+        display_cols = ["sku", "name", "category", "stock", "lead_time", "daily_velocity", "safety_stock", "rop", "days_runway", "reorder_status", "expiry_days", "suggested_po_qty", "vendor"]
+        available_display_cols = [c for c in display_cols if c in analytics_df.columns]
+        st.dataframe(analytics_df[available_display_cols], use_container_width=True, hide_index=True)
+
+# ------------------------------------------
+# TAB 3: POS TRANSACTION SCANNER
 # ------------------------------------------
 with tab_pos:
     st.markdown("#### **Point of Sale Barcode Intake Terminal**")
@@ -525,14 +428,14 @@ with tab_pos:
                             conn.execute(
                                 text("""
                                 INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes)
-                                VALUES (:ts, :sku, 'POS_SCAN', :qty, 'Live POS scan checkout')
+                                VALUES (:ts, :sku, 'POS_SCAN', :qty, 'Live POS checkout decrement')
                                 """),
                                 {"ts": datetime.now(), "sku": selected_sku, "qty": -scan_qty}
                             )
                         st.toast(f"✅ Deducted {scan_qty}x {sku_data['name']} from DB.", icon="🛒")
                         st.rerun()
                     except Exception as err:
-                        st.error(f"Transaction Execution Failed: {err}")
+                        st.error(f"Transaction Failed: {err}")
                 else:
                     st.error("No database engine connected.")
         else:
@@ -546,7 +449,7 @@ with tab_pos:
             st.caption("No recent stock movement logs found.")
 
 # ------------------------------------------
-# TAB 5: AUTONOMOUS PO DISPATCHER
+# TAB 4: AUTONOMOUS PO DISPATCHER
 # ------------------------------------------
 with tab_dispatcher:
     st.markdown("#### **Autonomous Purchase Order Dispatch Center**")
@@ -562,8 +465,8 @@ with tab_dispatcher:
             selected_vendor = st.selectbox("Group Orders by Supplier", po_candidates["vendor"].unique())
             vendor_orders = po_candidates[po_candidates["vendor"] == selected_vendor]
             
-            default_email = vendor_orders["email"].iloc[0] if "email" in vendor_orders.columns and vendor_orders["email"].iloc[0] else "vendor-orders@partner.com"
-            recipient_email = st.text_input("Supplier Dispatch Email", value=default_email)
+            target_email = vendor_orders["email"].iloc[0] if ("email" in vendor_orders.columns and str(vendor_orders["email"].iloc[0]).strip()) else ""
+            recipient_email = st.text_input("Supplier Dispatch Email", value=target_email, placeholder="supplier-contact@domain.com")
             
             po_body_lines = [
                 f"PURCHASE ORDER — INVENTRO.AI AUTONOMOUS REPLENISHMENT\n",
@@ -584,11 +487,13 @@ with tab_dispatcher:
             if st.button(f"✉️ Dispatch Purchase Order to {selected_vendor}", type="primary"):
                 if not smtp_sender or not smtp_password:
                     st.error("Please configure SMTP Sender Email and App Password in the sidebar.")
+                elif not recipient_email or not recipient_email.strip():
+                    st.error("Please provide a valid recipient email address.")
                 else:
                     try:
                         msg = MIMEMultipart()
                         msg["From"] = smtp_sender
-                        msg["To"] = recipient_email
+                        msg["To"] = recipient_email.strip()
                         msg["Subject"] = f"URGENT: Purchase Order Restock - {selected_vendor} [{datetime.now().strftime('%Y-%m-%d')}]"
                         msg.attach(MIMEText(po_payload, "plain"))
                         
@@ -605,17 +510,17 @@ with tab_dispatcher:
         st.info("Database not connected.")
 
 # ------------------------------------------
-# TAB 6: DATABASE INFRASTRUCTURE & TERMINAL
+# TAB 5: DATABASE INFRASTRUCTURE & TERMINAL
 # ------------------------------------------
 with tab_infra:
     st.markdown("#### **Database Infrastructure & Schema Provisioner**")
     col_prov, col_sql = st.columns([1, 1.2])
     
     with col_prov:
-        st.markdown("**Schema Initialization**")
-        st.caption("Provisions missing `products_master`, `sales_ledger`, and `stock_movements` tables with seed data.")
+        st.markdown("**Clean Schema Provisioning**")
+        st.caption("Creates empty production schema structures (`products_master`, `sales_ledger`, and `stock_movements`) without inserting any dummy records.")
         
-        if st.button("🛠️ Provision Missing Schemas & Seed Data"):
+        if st.button("🛠️ Provision Clean Schema Tables"):
             if is_connected:
                 try:
                     with engine.begin() as conn:
@@ -626,7 +531,7 @@ with tab_infra:
                             category VARCHAR(50),
                             stock INT DEFAULT 0,
                             lead_time INT DEFAULT 2,
-                            moq INT DEFAULT 10,
+                            moq INT DEFAULT 1,
                             pack_size INT DEFAULT 1,
                             vendor VARCHAR(100),
                             email VARCHAR(100),
@@ -654,16 +559,7 @@ with tab_infra:
                             notes VARCHAR(255)
                         );
                         """))
-                        res = conn.execute(text("SELECT COUNT(*) FROM products_master")).scalar()
-                        if res == 0:
-                            conn.execute(text("""
-                            INSERT INTO products_master (sku, name, category, stock, lead_time, moq, pack_size, vendor, email, expiry_days) VALUES
-                            ('SKU-1001', 'Amul Pasteurized Milk 1L', 'Dairy', 12, 1, 20, 10, 'Amul Dairy Co', 'orders@amuldairy.com', 3),
-                            ('SKU-1002', 'Aashirvaad Whole Wheat Atta 5kg', 'Grains', 8, 3, 10, 5, 'ITC Foods Ltd', 'supply@itc.com', 90),
-                            ('SKU-1003', 'Tata Salt Iodized 1kg', 'Pantry', 35, 2, 25, 25, 'Tata Consumer Products', 'orders@tataconsumer.com', 180),
-                            ('SKU-1004', 'Cadbury Dairy Milk Silk 150g', 'Confectionery', 5, 2, 15, 10, 'Mondelez India', 'restock@mondelez.com', 45);
-                            """))
-                    st.success("✅ Database schemas successfully verified & provisioned.")
+                    st.success("✅ Clean relational schemas initialized successfully.")
                     st.rerun()
                 except Exception as p_err:
                     st.error(f"Provisioning Failed: {p_err}")
