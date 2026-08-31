@@ -12,12 +12,12 @@ import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine, text, inspect
 
-# Google GenAI SDK
+# Groq SDK for High-Speed Conversational LLM
 try:
-    from google import genai
-    GENAI_AVAILABLE = True
+    from groq import Groq
+    GROQ_AVAILABLE = True
 except ImportError:
-    GENAI_AVAILABLE = False
+    GROQ_AVAILABLE = False
 
 # ==========================================
 # PAGE CONFIGURATION & DARK THEME
@@ -172,14 +172,14 @@ with st.sidebar:
                 db_uri = f"sqlite:///{clean_dbname}.db"
 
     st.divider()
-    st.markdown("**2. AI Engine Configuration**")
-    default_key = os.environ.get("GEMINI_API_KEY", "")
-    user_api_key = st.text_input(
-        "Gemini API Key",
+    st.markdown("**2. AI Engine (Groq / Llama 3.3)**")
+    default_key = os.environ.get("GROQ_API_KEY", "")
+    user_groq_key = st.text_input(
+        "Groq API Key",
         value=default_key,
-        placeholder="AIzaSy...",
+        placeholder="gsk_...",
         type="password",
-        help="Get a free key from https://aistudio.google.com/app/apikey"
+        help="Get a free key from https://console.groq.com/keys"
     )
 
     st.divider()
@@ -271,24 +271,24 @@ def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.D
 analytics_df = compute_analytics(df_products, df_sales)
 
 # ==========================================
-# INTELLIGENT AI AGENT ENGINE (GEMINI LLM)
+# INTELLIGENT AI AGENT ENGINE (GROQ / LLAMA 3.3)
 # ==========================================
 def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, custom_key: str) -> str:
-    """Uses Gemini 3.6 Flash to reason dynamically over live database context."""
-    active_key = custom_key.strip() if custom_key else st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+    """Uses Groq's high-speed Llama 3.3 70B to understand and reason over live inventory data."""
+    active_key = custom_key.strip() if custom_key else st.secrets.get("GROQ_API_KEY", os.environ.get("GROQ_API_KEY", ""))
 
     if not active_key:
         return (
-            "🔑 **Gemini API Key Required:**\n\n"
-            "Please paste your free Gemini API key in the left sidebar under **'2. AI Engine Configuration'**.\n"
-            "*Get a key for free in 30 seconds at [Google AI Studio](https://aistudio.google.com/app/apikey).*"
+            "🔑 **Groq API Key Required:**\n\n"
+            "Please paste your free Groq API key in the sidebar under **'2. AI Engine (Groq / Llama 3.3)'**.\n"
+            "*Get a free key in 30 seconds at [console.groq.com/keys](https://console.groq.com/keys).*"
         )
 
-    if not GENAI_AVAILABLE:
-        return "⚠️ `google-genai` is not installed. Add `google-genai` to your `requirements.txt`."
+    if not GROQ_AVAILABLE:
+        return "⚠️ `groq` is not installed. Add `groq` to your `requirements.txt`."
 
     try:
-        client = genai.Client(api_key=active_key)
+        client = Groq(api_key=active_key)
 
         data_context = matrix[[
             "sku", "name", "category", "stock", "lead_time", 
@@ -297,25 +297,30 @@ def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, custom_key: str)
         ]].to_dict(orient="records")
 
         system_prompt = f"""
-You are the AI Brain of inventro.ai, an autonomous retail inventory operating system.
+You are the AI Brain of inventro.ai, an autonomous retail inventory OS.
 You have real-time access to the store's inventory database:
 
 CURRENT INVENTORY DATASET:
 {json.dumps(data_context, default=str)}
 
 GUIDELINES:
-1. Deeply understand the user's intent. Answer any greeting, calculation, prediction, or business trade-off question.
-2. For stock levels, stockout risks, safety buffer math ($Z=1.65$), reorders, or decay, calculate the exact values directly from the dataset.
-3. Be concise, direct, and actionable. Use bullet points and bold text for clarity.
+1. Deeply understand the user's intent. Answer greetings, exact calculations, predictive scenarios, or inventory strategy questions.
+2. For stock levels, stockout risks, safety buffer math (Z=1.65), reorders, or expiry, calculate exact numbers from the dataset.
+3. Be concise, direct, and actionable. Use bullet points and bold formatting for clarity.
 """
 
-        response = client.models.generate_content(
-            model='gemini-3.6-flash',
-            contents=[system_prompt, f"User Question: {user_query}"]
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_query}
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0.2,
+            max_tokens=800
         )
-        return response.text
+        return chat_completion.choices[0].message.content
     except Exception as err:
-        return f"⚠️ **AI Engine Error:** {str(err)}\n\nPlease ensure your key is valid and has active quotas at [Google AI Studio](https://aistudio.google.com/)."
+        return f"⚠️ **AI Engine Error:** {str(err)}\n\nPlease ensure your Groq key is valid at [console.groq.com](https://console.groq.com)."
 
 # ==========================================
 # MAIN INTERFACE TABS
@@ -378,11 +383,11 @@ with tab_agent:
 
         # Conversational Chatbot Interface
         st.markdown("#### **💬 Ask the AI Inventory Agent**")
-        st.caption("Ask questions in natural language. Powered by Gemini 3.6 Flash.")
+        st.caption("Ask questions in natural language. Powered by Groq Llama 3.3 70B.")
 
         if "chat_messages" not in st.session_state:
             st.session_state.chat_messages = [
-                {"role": "assistant", "content": "Hello! I am connected to your live database. Ask me anything about stock levels, purchase orders, expirations, or sales velocity."}
+                {"role": "assistant", "content": "Hello! I am connected to your live database. Ask me anything about stockout risks, demand forecasts, expirations, or vendor purchase orders."}
             ]
 
         for msg in st.session_state.chat_messages:
@@ -396,7 +401,7 @@ with tab_agent:
 
             with st.chat_message("assistant"):
                 with st.spinner("Analyzing live inventory..."):
-                    ai_answer = intelligent_ai_agent(user_prompt, analytics_df, user_api_key)
+                    ai_answer = intelligent_ai_agent(user_prompt, analytics_df, user_groq_key)
                     st.markdown(ai_answer)
             
             st.session_state.chat_messages.append({"role": "assistant", "content": ai_answer})
