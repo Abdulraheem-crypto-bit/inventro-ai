@@ -172,7 +172,18 @@ with st.sidebar:
                 db_uri = f"sqlite:///{clean_dbname}.db"
 
     st.divider()
-    st.markdown("**2. SMTP Vendor Dispatcher**")
+    st.markdown("**2. AI Engine Configuration**")
+    default_key = os.environ.get("GEMINI_API_KEY", "")
+    user_api_key = st.text_input(
+        "Gemini API Key",
+        value=default_key,
+        placeholder="AIzaSy...",
+        type="password",
+        help="Get a free key from https://aistudio.google.com/app/apikey"
+    )
+
+    st.divider()
+    st.markdown("**3. SMTP Vendor Dispatcher**")
     smtp_server = st.text_input("SMTP Server", placeholder="smtp.gmail.com")
     smtp_port = st.number_input("SMTP Port", min_value=1, max_value=65535, value=587)
     smtp_sender = st.text_input("Sender Email", placeholder="your-email@domain.com")
@@ -262,24 +273,22 @@ analytics_df = compute_analytics(df_products, df_sales)
 # ==========================================
 # INTELLIGENT AI AGENT ENGINE (GEMINI LLM)
 # ==========================================
-def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame) -> str:
-    """Uses Gemini 2.5 Flash to reason over live inventory data."""
-    api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, custom_key: str) -> str:
+    """Uses Gemini 2.5 Flash to reason dynamically over live database context."""
+    active_key = custom_key.strip() if custom_key else st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 
-    if not api_key:
+    if not active_key:
         return (
-            "⚙️ **LLM Engine Setup Required:**\n\n"
-            "To enable conversational AI, add your Gemini API key to **Streamlit Secrets**:\n"
-            "1. Click `Manage app` (bottom right) ➔ `⋮` ➔ `Settings` ➔ `Secrets`.\n"
-            "2. Add `GEMINI_API_KEY = \"AIzaSy...\"` and click Save.\n\n"
-            "*Users visiting your site will never be asked to provide a key.*"
+            "🔑 **Gemini API Key Required:**\n\n"
+            "Please paste your free Gemini API key in the left sidebar under **'2. AI Engine Configuration'**.\n"
+            "*Get a key for free in 30 seconds at [Google AI Studio](https://aistudio.google.com/app/apikey).*"
         )
 
     if not GENAI_AVAILABLE:
         return "⚠️ `google-genai` is not installed. Add `google-genai` to your `requirements.txt`."
 
     try:
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(api_key=active_key)
 
         data_context = matrix[[
             "sku", "name", "category", "stock", "lead_time", 
@@ -289,24 +298,24 @@ def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame) -> str:
 
         system_prompt = f"""
 You are the AI Brain of inventro.ai, an autonomous retail inventory operating system.
-You have complete real-time access to the store's inventory database:
+You have real-time access to the store's inventory database:
 
 CURRENT INVENTORY DATASET:
 {json.dumps(data_context, default=str)}
 
 GUIDELINES:
-1. Handle greetings ("hi", "hello", "how are you") naturally, warmly, and briefly invite questions about store inventory.
-2. If asked about stock levels, risks, projections, reorders, fast movers, or shelf-life decay, calculate the exact answers directly from the dataset.
-3. Be concise, direct, and helpful. Use bold text and bullet points for readability. Avoid generic robotic fluff.
+1. Deeply understand the user's intent. Answer any greeting, calculation, prediction, or business trade-off question.
+2. For stock levels, stockout risks, safety buffer math ($Z=1.65$), reorders, or decay, calculate the exact values directly from the dataset.
+3. Be concise, direct, and actionable. Use bullet points and bold text for clarity.
 """
 
         response = client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=[system_prompt, f"User: {user_query}"]
+            contents=[system_prompt, f"User Question: {user_query}"]
         )
         return response.text
     except Exception as err:
-        return f"AI Reasoning Error: {str(err)}"
+        return f"⚠️ **AI Engine Error:** {str(err)}\n\nPlease ensure your key is valid and has active quotas at [Google AI Studio](https://aistudio.google.com/)."
 
 # ==========================================
 # MAIN INTERFACE TABS
@@ -369,11 +378,11 @@ with tab_agent:
 
         # Conversational Chatbot Interface
         st.markdown("#### **💬 Ask the AI Inventory Agent**")
-        st.caption("Ask open-ended questions. The agent computes answers against live inventory metrics.")
+        st.caption("Ask questions in natural language. Powered by Gemini 2.5 Flash.")
 
         if "chat_messages" not in st.session_state:
             st.session_state.chat_messages = [
-                {"role": "assistant", "content": "Hello! I am connected to your live database. Ask me anything about stockout risks, demand velocity, perishables, or supplier restock orders."}
+                {"role": "assistant", "content": "Hello! I am connected to your live database. Ask me anything about stock levels, purchase orders, expirations, or sales velocity."}
             ]
 
         for msg in st.session_state.chat_messages:
@@ -387,7 +396,7 @@ with tab_agent:
 
             with st.chat_message("assistant"):
                 with st.spinner("Analyzing live inventory..."):
-                    ai_answer = intelligent_ai_agent(user_prompt, analytics_df)
+                    ai_answer = intelligent_ai_agent(user_prompt, analytics_df, user_api_key)
                     st.markdown(ai_answer)
             
             st.session_state.chat_messages.append({"role": "assistant", "content": ai_answer})
