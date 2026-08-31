@@ -274,7 +274,7 @@ analytics_df = compute_analytics(df_products, df_sales)
 # INTELLIGENT AI AGENT ENGINE (GEMINI LLM)
 # ==========================================
 def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, custom_key: str) -> str:
-    """Uses Gemini 2.5 Flash to reason dynamically over live database context."""
+    """Uses Gemini 3.6 Flash to reason dynamically over live database context."""
     active_key = custom_key.strip() if custom_key else st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 
     if not active_key:
@@ -310,7 +310,7 @@ GUIDELINES:
 """
 
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.6-flash',
             contents=[system_prompt, f"User Question: {user_query}"]
         )
         return response.text
@@ -378,7 +378,7 @@ with tab_agent:
 
         # Conversational Chatbot Interface
         st.markdown("#### **💬 Ask the AI Inventory Agent**")
-        st.caption("Ask questions in natural language. Powered by Gemini 2.5 Flash.")
+        st.caption("Ask questions in natural language. Powered by Gemini 3.6 Flash.")
 
         if "chat_messages" not in st.session_state:
             st.session_state.chat_messages = [
