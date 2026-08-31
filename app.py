@@ -1,7 +1,5 @@
-import os
 import re
 import math
-import json
 import smtplib
 from datetime import datetime
 from email.mime.text import MIMEText
@@ -11,14 +9,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine, text, inspect
-
-# Google GenAI SDK for Natural Language Understanding
-try:
-    from google import genai
-    from google.genai import types
-    GENAI_AVAILABLE = True
-except ImportError:
-    GENAI_AVAILABLE = False
 
 # ==========================================
 # PAGE CONFIGURATION & DARK THEME
@@ -261,53 +251,104 @@ def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.D
 analytics_df = compute_analytics(df_products, df_sales)
 
 # ==========================================
-# INTELLIGENT AI AGENT ENGINE (GEMINI LLM)
+# 100% OFFLINE NLP & SEMANTIC AGENT ENGINE
 # ==========================================
-def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame) -> str:
-    """Uses Gemini 2.5 Flash to reason over live inventory data."""
-    api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+def intelligent_offline_agent(user_query: str, matrix: pd.DataFrame) -> str:
+    """Conversational Natural Language Engine running locally with zero API keys."""
+    if matrix.empty:
+        return "👋 Hello! I am currently idle because no database is connected. Once you attach a database in the sidebar, I will analyze your inventory in real time."
 
-    if not api_key:
+    q = user_query.strip().lower()
+    critical = matrix[matrix["reorder_status"] == "RESTOCK NEEDED"]
+    perishables = matrix[matrix["expiry_risk"] == "HIGH EXPIRY RISK"]
+    overstocked = matrix[matrix["days_runway"] > 30]
+
+    # 1. Greetings & Conversational Queries
+    if q in ["hi", "hii", "hello", "hey", "hola", "sup", "greetings", "good morning", "good afternoon", "good evening"]:
+        breach_text = f"🚨 **{len(critical)} SKUs require urgent reordering**" if not critical.empty else "🟢 all items are healthy"
+        return f"👋 Hello! I'm your autonomous inventory agent. I'm currently monitoring **{len(matrix)} SKUs**. Right now, {breach_text}. What would you like to check? *(e.g., restock orders, expiry risks, fast movers, or a specific item)*"
+
+    if any(phrase in q for phrase in ["how are you", "how's it going", "how are things"]):
+        return f"🤖 Operating at 100% efficiency! Monitoring **{len(matrix)} catalog items** across **{matrix['category'].nunique()} categories**. Average fleet runway is **{round(matrix['days_runway'].mean(), 1)} days**."
+
+    if any(phrase in q for phrase in ["who are you", "what are you", "what can you do", "help"]):
         return (
-            "⚙️ **LLM Engine Setup Required:**\n\n"
-            "To enable true conversational AI, add your Gemini API key to **Streamlit Secrets**:\n"
-            "1. Click `Manage app` (bottom right) -> `⋮` -> `Settings` -> `Secrets`.\n"
-            "2. Add `GEMINI_API_KEY = \"AIzaSy...\"` and save.\n\n"
-            "*Users visiting your site will never be asked for an API key.*"
+            "🤖 **I am the inventro.ai Autonomous Agent.**\n\n"
+            "Here is what I can do for you:\n"
+            "- **Track Stockouts:** Ask *'Which item runs out first?'*\n"
+            "- **Suggest Restocks:** Ask *'What should I purchase today?'*\n"
+            "- **Perishables & Expiry:** Ask *'What items are expiring?'*\n"
+            "- **Product Lookups:** Ask about any item by name or SKU (e.g., *'Check milk stock'*)\n"
+            "- **Identify Movers:** Ask *'Show top sellers'* or *'Show slow movers'*"
         )
 
-    if not GENAI_AVAILABLE:
-        return "⚠️ `google-genai` is not installed. Add `google-genai` to your `requirements.txt`."
+    if any(phrase in q for phrase in ["thank you", "thanks", "thx", "appreciate it"]):
+        return "You're welcome! Let me know if you need anything else analyzed across the catalog."
 
-    try:
-        client = genai.Client(api_key=api_key)
+    # 2. Specific Item / SKU Search
+    for _, row in matrix.iterrows():
+        tokens = [t for t in re.split(r'[\s\-_]+', str(row["name"]).lower()) if len(t) > 2]
+        sku_clean = str(row["sku"]).lower()
+        if sku_clean in q or (tokens and any(t in q for t in tokens)):
+            status_badge = "🚨 **RESTOCK REQUIRED**" if row["reorder_status"] == "RESTOCK NEEDED" else "🟢 **HEALTHY**"
+            return (
+                f"📊 **Inventory Report for {row['name']} (`{row['sku']}`):**\n"
+                f"- **Stock On Hand:** {row['stock']} units\n"
+                f"- **Sales Velocity:** {row['daily_velocity']:.1f} units/day\n"
+                f"- **Runway:** **{row['days_runway']} days left**\n"
+                f"- **Safety Stock & ROP:** Safety Cushion = {row['safety_stock']}, Reorder Point = {row['rop']}\n"
+                f"- **Supplier:** {row['vendor']} (Lead Time: {row['lead_time']} days, MOQ: {row['moq']})\n"
+                f"- **Status:** {status_badge}" + (f"\n- **Suggested Restock:** +{row['suggested_po_qty']} units" if row['suggested_po_qty'] > 0 else "")
+            )
 
-        data_context = matrix[[
-            "sku", "name", "category", "stock", "lead_time", 
-            "daily_velocity", "safety_stock", "rop", "days_runway", 
-            "reorder_status", "expiry_days", "suggested_po_qty", "vendor"
-        ]].to_dict(orient="records")
-
-        system_prompt = f"""
-You are the AI Brain of inventro.ai, an autonomous retail inventory system.
-You have real-time access to the store's inventory database:
-
-CURRENT INVENTORY DATASET:
-{json.dumps(data_context, default=str)}
-
-GUIDELINES:
-1. Understand conversational greetings ("hi", "hello", "how are you") naturally and invite questions about the inventory.
-2. If asked about stock levels, risks, projections, reorders, or decay, calculate the exact answers using the dataset above.
-3. Be concise, direct, and helpful. Use bold text and bullet points for readability. Avoid generic robotic fluff.
-"""
-
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=[system_prompt, f"User: {user_query}"]
+    # 3. Stockout & Runway Inquiries
+    if any(k in q for k in ["run out", "stockout", "lowest", "first", "deplete", "empty", "critical", "danger"]):
+        worst = matrix.sort_values(by="days_runway").iloc[0]
+        return (
+            f"⚠️ **`{worst['name']}`** is projected to run out first:\n"
+            f"- **Current Stock:** {worst['stock']} units\n"
+            f"- **Daily Consumption:** {worst['daily_velocity']:.1f} units/day\n"
+            f"- **Runway:** Only **{worst['days_runway']} days remaining** before complete depletion."
         )
-        return response.text
-    except Exception as err:
-        return f"AI Reasoning Error: {str(err)}"
+
+    # 4. Purchase Order & Reorder Inquiries
+    if any(k in q for k in ["order", "purchase", "buy", "restock", "po", "replenish", "supplier", "vendor"]):
+        if not critical.empty:
+            directives = [f"• **{r['vendor']}**: Order **{r['suggested_po_qty']} units** of *{r['name']}* (Stock: {r['stock']} / ROP: {r['rop']})" for _, r in critical.iterrows()]
+            return "📦 **Active Purchase Orders Required Today:**\n" + "\n".join(directives)
+        return "✨ All items are operating above their safety stock thresholds. Zero purchase orders needed today."
+
+    # 5. Expiration & Perishability Inquiries
+    if any(k in q for k in ["expire", "expiry", "perish", "spoil", "shelf life", "decay"]):
+        if not perishables.empty:
+            exp_lines = [f"• **{r['name']}**: **{r['expiry_days']} days remaining** (Stock: {r['stock']} units, Runway: {r['days_runway']} days)" for _, r in perishables.iterrows()]
+            return "⏳ **Urgent Expiration Alerts (≤ 7 Days):**\n" + "\n".join(exp_lines)
+        return "✨ All catalog items have sufficient shelf-life buffers (> 7 days remaining)."
+
+    # 6. Fast Movers vs. Slow Movers
+    if any(k in q for k in ["fast", "popular", "top", "best", "highest sales"]):
+        top_sellers = matrix.sort_values(by="daily_velocity", ascending=False).head(3)
+        top_lines = [f"• **{r['name']}**: **{r['daily_velocity']:.1f} units/day** ({r['stock']} in stock)" for _, r in top_sellers.iterrows()]
+        return "🔥 **Top High-Velocity Products:**\n" + "\n".join(top_lines)
+
+    if any(k in q for k in ["slow", "overstock", "dead stock", "excess", "capital"]):
+        slowest = overstocked.sort_values(by="days_runway", ascending=False).head(3) if not overstocked.empty else matrix.sort_values(by="days_runway", ascending=False).head(3)
+        slow_lines = [f"• **{r['name']}**: **{r['days_runway']} days runway** ({r['stock']} units on hand)" for _, r in slowest.iterrows()]
+        return "🧊 **Slow-Moving / Excess Stock Lines:**\n" + "\n".join(slow_lines)
+
+    # 7. Total Quantity & Math Stats
+    if any(k in q for k in ["total", "count", "how many", "units"]):
+        return f"📊 **Inventory Fleet Metrics:**\n- Total Units on Hand: **{int(matrix['stock'].sum()):,} units**\n- Monitored SKUs: **{len(matrix)}**\n- Active Categories: **{matrix['category'].nunique()}**\n- Items Breaching Safety Stock: **{len(critical)}**"
+
+    # Default Contextual Synthesis
+    return (
+        f"📊 **Inventory Intelligence Summary:**\n"
+        f"- Monitoring **{len(matrix)} SKUs** across **{matrix['category'].nunique()} departments**.\n"
+        f"- **{len(critical)} lines** require replenishment.\n"
+        f"- **{len(perishables)} lines** are within a 7-day expiration window.\n"
+        f"- Average fleet runway: **{round(matrix['days_runway'].mean(), 1)} days**.\n\n"
+        f"*Try asking: 'What should I order?', 'Which item runs out first?', or search a specific product name.*"
+    )
 
 # ==========================================
 # MAIN INTERFACE TABS
@@ -327,7 +368,7 @@ tab_agent, tab_analytics, tab_pos, tab_dispatcher, tab_infra = st.tabs([
 # TAB 1: AUTONOMOUS AI AGENT & CHATBOT
 # ------------------------------------------
 with tab_agent:
-    st.markdown("#### **🤖 Autonomous AI Supply Agent & Intelligent Copilot**")
+    st.markdown("#### **🤖 Autonomous AI Supply Agent & Copilot (100% Free & Offline)**")
     st.caption("Self-directed diagnostic loop analyzing stockout vectors, lead times, and decay risks in real time.")
     
     if analytics_df.empty:
@@ -370,11 +411,11 @@ with tab_agent:
 
         # Conversational Chatbot Interface
         st.markdown("#### **💬 Ask the AI Inventory Agent**")
-        st.caption("Ask anything about stockout risks, demand forecasts, expirations, or vendor purchase orders.")
+        st.caption("Ask questions in natural language. The agent calculates answers dynamically.")
 
         if "chat_messages" not in st.session_state:
             st.session_state.chat_messages = [
-                {"role": "assistant", "content": "Hello! I am connected to your live database. Ask me anything about stockout risks, demand velocity, perishables, or supplier restock orders."}
+                {"role": "assistant", "content": "Hello! I am connected to your live database. Ask me anything about stock levels, purchase orders, expirations, or sales velocity."}
             ]
 
         for msg in st.session_state.chat_messages:
@@ -387,9 +428,8 @@ with tab_agent:
                 st.markdown(user_prompt)
 
             with st.chat_message("assistant"):
-                with st.spinner("Analyzing live inventory..."):
-                    ai_answer = intelligent_ai_agent(user_prompt, analytics_df)
-                    st.markdown(ai_answer)
+                ai_answer = intelligent_offline_agent(user_prompt, analytics_df)
+                st.markdown(ai_answer)
             
             st.session_state.chat_messages.append({"role": "assistant", "content": ai_answer})
 
