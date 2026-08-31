@@ -1,7 +1,7 @@
 streamlit
 pandas
 numpy
-SQLAlchemy>=2.0.0
+sqlalchemy
 psycopg2-binary
 pymysql
-cryptography
+google-genai
