@@ -1,6 +1,4 @@
-import os
 import re
-import json
 import math
 import smtplib
 from datetime import datetime
@@ -11,14 +9,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine, text, inspect
-
-# Google GenAI SDK for Natural Language Understanding
-try:
-    from google import genai
-    from google.genai import types
-    GENAI_AVAILABLE = True
-except ImportError:
-    GENAI_AVAILABLE = False
 
 # ==========================================
 # PAGE CONFIGURATION & DARK THEME
@@ -44,7 +34,7 @@ st.markdown("""
         background: rgba(15, 23, 42, 0.85);
         border: 1px solid rgba(99, 102, 241, 0.3);
         border-radius: 12px;
-        padding: 18px 22px;
+        padding: 20px 24px;
         margin-bottom: 20px;
     }
     .agent-stream {
@@ -136,7 +126,7 @@ def get_db_engine(connection_string: str):
         return None
 
 # ==========================================
-# SIDEBAR CONFIGURATION
+# SIDEBAR CONFIGURATION (ZERO API KEY PROMPT)
 # ==========================================
 with st.sidebar:
     st.markdown("### ⚡ **inventro.ai**")
@@ -173,12 +163,7 @@ with st.sidebar:
                 db_uri = f"sqlite:///{clean_dbname}.db"
 
     st.divider()
-    st.markdown("**2. AI Chatbot Configuration**")
-    default_key = os.environ.get("GEMINI_API_KEY", "")
-    api_key_input = st.text_input("Gemini API Key", value=default_key, placeholder="AIzaSy...", type="password")
-    
-    st.divider()
-    st.markdown("**3. SMTP Vendor Dispatcher**")
+    st.markdown("**2. SMTP Vendor Dispatcher**")
     smtp_server = st.text_input("SMTP Server", placeholder="smtp.gmail.com")
     smtp_port = st.number_input("SMTP Port", min_value=1, max_value=65535, value=587)
     smtp_sender = st.text_input("Sender Email", placeholder="your-email@domain.com")
@@ -217,7 +202,7 @@ if is_connected:
             if move_target:
                 raw_movements = pd.read_sql(text(f"SELECT * FROM {move_target} ORDER BY 1 DESC LIMIT 50"), conn)
     except Exception as e:
-        st.error(f"Data Ingestion Notice: {e}")
+        st.error(f"Data Fetch Notice: {e}")
 
 df_products, prod_map = resolve_and_normalize(raw_products)
 df_sales, sales_map = resolve_and_normalize(raw_sales)
@@ -266,47 +251,81 @@ def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.D
 analytics_df = compute_analytics(df_products, df_sales)
 
 # ==========================================
-# LLM AI AGENT REASONING ENGINE
+# 100% OFFLINE LOCAL SEMANTIC AI ENGINE
 # ==========================================
-def query_gemini_agent(user_prompt: str, current_matrix: pd.DataFrame, api_key: str) -> str:
-    """Passes user question + full live inventory state to Gemini for natural language reasoning."""
-    if not GENAI_AVAILABLE:
-        return "⚠️ The `google-genai` library is not installed. Please add `google-genai` to requirements.txt."
-    
-    if not api_key:
-        return "⚠️ Please enter your Gemini API Key in the left sidebar under 'AI Chatbot Configuration' to enable intelligent natural language responses."
-    
-    try:
-        client = genai.Client(api_key=api_key)
-        
-        # Format inventory dataset as context
-        data_summary = current_matrix[[
-            "sku", "name", "category", "stock", "lead_time", 
-            "daily_velocity", "safety_stock", "rop", "days_runway", 
-            "reorder_status", "expiry_days", "suggested_po_qty", "vendor"
-        ]].to_dict(orient="records")
+def local_ai_agent(user_query: str, matrix: pd.DataFrame) -> str:
+    """Processes natural language questions locally using vectorized tabular reasoning."""
+    if matrix.empty:
+        return "No inventory data is loaded. Please connect a database to analyze."
 
-        system_instruction = f"""
-You are the AI Brain of inventro.ai, an autonomous retail inventory system.
-You have complete real-time access to the store's inventory matrix below:
+    q = user_query.lower()
+    critical = matrix[matrix["reorder_status"] == "RESTOCK NEEDED"]
+    perishables = matrix[matrix["expiry_risk"] == "HIGH EXPIRY RISK"]
+    overstocked = matrix[matrix["days_runway"] > 30]
 
-CURRENT INVENTORY DATASET:
-{json.dumps(data_summary, default=str)}
+    # 1. Specific Product Lookup
+    for _, row in matrix.iterrows():
+        name_tokens = [t for t in re.split(r'\s+', row["name"].lower()) if len(t) > 2]
+        if row["sku"].lower() in q or (name_tokens and any(token in q for token in name_tokens)):
+            return (
+                f"**Analysis for {row['name']} (`{row['sku']}`):**\n"
+                f"- **Stock Level:** {row['stock']} units on hand\n"
+                f"- **Safety Stock & ROP:** Safety Cushion = {row['safety_stock']}, Reorder Trigger = {row['rop']}\n"
+                f"- **Sales Velocity:** {row['daily_velocity']:.1f} units/day (Runway: **{row['days_runway']} days**)\n"
+                f"- **Supplier:** {row['vendor']} (Lead time: {row['lead_time']} days, MOQ: {row['moq']})\n"
+                f"- **Current Status:** {'🚨 **RESTOCK REQUIRED** (Suggested Order: +' + str(row['suggested_po_qty']) + ' units)' if row['reorder_status'] == 'RESTOCK NEEDED' else '🟢 **Stock is Healthy**'}"
+            )
 
-YOUR ROLE:
-- Answer the user's specific questions accurately using the inventory records above.
-- Understand the user's intent deeply (e.g. stockouts, financial capital risks, expiry hazards, supplier delays, reorder priorities).
-- Perform exact mathematical reasoning if asked about sales velocity, lead times, safety stocks ($Z=1.65$, 95% service level), or runway.
-- Provide crisp, direct answers. Use bullet points or bold text where appropriate. Avoid unnecessary conversational fluff.
-"""
-
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=[system_instruction, f"User Question: {user_prompt}"]
+    # 2. Stockout & Depletion Intent
+    if any(k in q for k in ["run out", "stockout", "lowest", "first", "deplete", "empty", "critical", "danger"]):
+        worst = matrix.sort_values(by="days_runway").iloc[0]
+        return (
+            f"**`{worst['name']}`** is projected to run out first:\n"
+            f"- **Current Stock:** {worst['stock']} units\n"
+            f"- **Daily Consumption:** {worst['daily_velocity']:.1f} units/day\n"
+            f"- **Estimated Runway:** Only **{worst['days_runway']} days remaining** before complete stockout."
         )
-        return response.text
-    except Exception as e:
-        return f"AI Agent encountered an error: {str(e)}"
+
+    # 3. Replenishment & Purchase Order Intent
+    if any(k in q for k in ["order", "purchase", "buy", "restock", "po", "replenish", "supplier", "vendor"]):
+        if not critical.empty:
+            directives = []
+            for _, r in critical.iterrows():
+                directives.append(f"• **{r['vendor']}**: Order **{r['suggested_po_qty']} units** of *{r['name']}* (Current: {r['stock']} / ROP: {r['rop']})")
+            return "**Active Purchase Order Directives:**\n" + "\n".join(directives)
+        return "✨ All product lines are currently above their statistical reorder points. Zero purchase orders required."
+
+    # 4. Expiration & Shelf-Life Intent
+    if any(k in q for k in ["expire", "expiry", "perish", "spoil", "shelf life", "decay"]):
+        if not perishables.empty:
+            exp_lines = []
+            for _, r in perishables.iterrows():
+                exp_lines.append(f"• **{r['name']}**: **{r['expiry_days']} days left** (Stock: {r['stock']} units, Runway: {r['days_runway']} days)")
+            return "**Urgent Perishability Alerts (≤ 7 Days):**\n" + "\n".join(exp_lines)
+        return "✨ All items have sufficient shelf-life buffers (> 7 days remaining)."
+
+    # 5. Overstock & Working Capital Intent
+    if any(k in q for k in ["overstock", "excess", "slow", "capital", "dead stock", "too much"]):
+        if not overstocked.empty:
+            slowest = overstocked.sort_values(by="days_runway", ascending=False).head(3)
+            slow_lines = [f"• **{r['name']}**: **{r['days_runway']} days runway** ({r['stock']} units in stock)" for _, r in slowest.iterrows()]
+            return "**Highest Overstock / Capital Locked Lines:**\n" + "\n".join(slow_lines) + "\n\n*Recommendation: Pause restock orders on these lines.*"
+
+    # 6. Top Fast Movers / Best Sellers
+    if any(k in q for k in ["fast", "popular", "top", "best", "velocity", "highest sales"]):
+        top_sellers = matrix.sort_values(by="daily_velocity", ascending=False).head(3)
+        top_lines = [f"• **{r['name']}**: **{r['daily_velocity']:.1f} units/day** (Stock: {r['stock']})" for _, r in top_sellers.iterrows()]
+        return "**Top High-Velocity Products:**\n" + "\n".join(top_lines)
+
+    # Default Full Summary
+    return (
+        f"**Fleet Intelligence Overview:**\n"
+        f"- **Total Catalog:** {len(matrix)} SKUs across {matrix['category'].nunique()} categories\n"
+        f"- **Inventory Volume:** {int(matrix['stock'].sum()):,} units active in fleet\n"
+        f"- **Depletion Warnings:** {len(critical)} lines need replenishment\n"
+        f"- **Perishable Risks:** {len(perishables)} lines near expiration\n"
+        f"- **Average Fleet Runway:** {round(matrix['days_runway'].mean(), 1)} days"
+    )
 
 # ==========================================
 # MAIN INTERFACE TABS
@@ -323,11 +342,11 @@ tab_agent, tab_analytics, tab_pos, tab_dispatcher, tab_infra = st.tabs([
 ])
 
 # ------------------------------------------
-# TAB 1: AUTONOMOUS AI AGENT & LLM CHATBOT
+# TAB 1: AUTONOMOUS AI AGENT & CHATBOT
 # ------------------------------------------
 with tab_agent:
-    st.markdown("#### **🤖 Autonomous AI Supply Agent & Intelligent Copilot**")
-    st.caption("Real-time exploratory data analysis (EDA) combined with an LLM reasoning engine that answers any questions regarding your inventory.")
+    st.markdown("#### **🤖 Autonomous AI Supply Agent & Copilot (100% Offline & Free)**")
+    st.caption("Self-directed diagnostic loop analyzing stockout vectors, lead times, and decay risks in real time.")
     
     if analytics_df.empty:
         st.warning("Agent is currently idle. Connect your database or provision tables in the Infrastructure tab to begin.")
@@ -335,7 +354,7 @@ with tab_agent:
         critical_items = analytics_df[analytics_df["reorder_status"] == "RESTOCK NEEDED"]
         perishable_items = analytics_df[analytics_df["expiry_risk"] == "HIGH EXPIRY RISK"]
         
-        # 1. Autonomous EDA Diagnostic Stream
+        # Autonomous EDA Diagnostics
         missing_cells = raw_products.isnull().sum().sum() + raw_sales.isnull().sum().sum()
         total_cells = (raw_products.size + raw_sales.size) or 1
         completeness = round(((total_cells - missing_cells) / total_cells) * 100, 2)
@@ -367,33 +386,27 @@ with tab_agent:
 
         st.divider()
 
-        # 2. Intelligent Conversational Chatbot Interface
+        # Conversational Chatbot Interface
         st.markdown("#### **💬 Ask the AI Inventory Agent**")
-        st.caption("Ask open-ended questions. The agent understands context, calculations, and supply chain trade-offs.")
+        st.caption("Ask anything about stockout risks, demand forecasts, expirations, or vendor purchase orders.")
 
-        # Initialize chat history in session state
         if "chat_messages" not in st.session_state:
             st.session_state.chat_messages = [
-                {"role": "assistant", "content": "Hello! I am connected to your live inventory database. Ask me anything about stockout risks, demand forecasts, expirations, or vendor orders."}
+                {"role": "assistant", "content": "Hello! I am connected to your live database. Ask me anything about stockout risks, demand velocity, perishables, or supplier restock orders."}
             ]
 
-        # Display chat messages
         for msg in st.session_state.chat_messages:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
-        # Chat Input
         if user_prompt := st.chat_input("Ask about stock levels, risks, or predictions..."):
-            # Display user message
             st.session_state.chat_messages.append({"role": "user", "content": user_prompt})
             with st.chat_message("user"):
                 st.markdown(user_prompt)
 
-            # Generate AI response
             with st.chat_message("assistant"):
-                with st.spinner("Analyzing inventory matrix..."):
-                    ai_answer = query_gemini_agent(user_prompt, analytics_df, api_key_input)
-                    st.markdown(ai_answer)
+                ai_answer = local_ai_agent(user_prompt, analytics_df)
+                st.markdown(ai_answer)
             
             st.session_state.chat_messages.append({"role": "assistant", "content": ai_answer})
 
@@ -547,7 +560,7 @@ with tab_infra:
     
     with col_prov:
         st.markdown("**Clean Schema Provisioning**")
-        st.caption("Creates empty production schema structures (`products_master`, `sales_ledger`, and `stock_movements`) without inserting any dummy records.")
+        st.caption("Creates empty production schema structures (`products_master`, `sales_ledger`, and `stock_movements`) without inserting dummy records.")
         
         if st.button("🛠️ Provision Clean Schema Tables"):
             if is_connected:
