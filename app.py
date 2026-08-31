@@ -336,7 +336,7 @@ st.caption("Autonomous Retail Operating System & Dynamic Reorder Engine")
 tab_agent, tab_analytics, tab_pos, tab_dispatcher, tab_infra = st.tabs([
     "🤖 Autonomous AI Supply Agent",
     "📊 Catalog & Analytics Matrix",
-    "⚡ POS Transaction Scanner",
+    "⚡ Stock Movement Terminal",
     "✉️ Autonomous PO Dispatcher",
     "🔌 Database Infrastructure Terminal"
 ])
@@ -423,63 +423,142 @@ with tab_analytics:
         st.dataframe(analytics_df[available_display_cols], use_container_width=True, hide_index=True)
 
 # ------------------------------------------
-# TAB 3: POS TRANSACTION SCANNER
+# TAB 3: POS & INVENTORY MOVEMENT TERMINAL
 # ------------------------------------------
 with tab_pos:
-    st.markdown("#### **Point of Sale Barcode Intake Terminal**")
-    pos_col1, pos_col2 = st.columns([1, 1.5])
+    st.markdown("#### **⚡ Real-Time Stock Movement Terminal (In / Out / POS)**")
+    st.caption("Execute incoming vendor receipts, live checkout scans, or damaged/expired write-offs directly to the database.")
+    
+    pos_col1, pos_col2 = st.columns([1.1, 1.4])
     
     with pos_col1:
         if not analytics_df.empty:
             sku_options = analytics_df["sku"].tolist()
-            selected_sku = st.selectbox("Select Barcode / SKU Scan", sku_options)
+            selected_sku = st.selectbox("Select Barcode / SKU", sku_options)
             sku_data = analytics_df[analytics_df["sku"] == selected_sku].iloc[0]
             
-            scan_qty = st.number_input("Checkout Units", min_value=1, max_value=int(max(1, sku_data['stock'])), value=1)
+            # Action Selector: Stock IN vs POS Checkout vs Stock OUT
+            action_type = st.radio(
+                "Select Movement Operation:",
+                ["📥 Stock IN (Receive Goods)", "⚡ POS Scan (Customer Checkout)", "📤 Stock OUT (Damage / Write-Off)"],
+                horizontal=True
+            )
+            
+            units_qty = st.number_input("Units Count", min_value=1, value=1)
             
             st.markdown(f"""
             **Item:** `{sku_data['name']}`  
             **Current Physical Stock:** `{sku_data['stock']} units`  
-            **Active ROP Threshold:** `{sku_data['rop']} units`  
+            **Category:** `{sku_data['category']}` | **Supplier:** `{sku_data['vendor']}`  
+            **Active ROP:** `{sku_data['rop']} units`  
             """)
             
-            if st.button("⚡ Execute POS Transaction", type="primary", use_container_width=True):
-                if is_connected:
-                    try:
-                        with engine.begin() as conn:
-                            stock_col = prod_map.get("stock", "stock")
-                            sku_col = prod_map.get("sku", "sku")
-                            conn.execute(
-                                text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku"),
-                                {"qty": scan_qty, "sku": selected_sku}
-                            )
-                            conn.execute(
-                                text("""
-                                INSERT INTO sales_ledger (transaction_date, sku, product_name, category, quantity_sold, is_weekend)
-                                VALUES (:tdate, :sku, :name, :cat, :qty, :wkd)
-                                """),
-                                {
-                                    "tdate": datetime.now(),
-                                    "sku": selected_sku,
-                                    "name": sku_data["name"],
-                                    "cat": sku_data["category"],
-                                    "qty": scan_qty,
-                                    "wkd": 1 if datetime.now().weekday() >= 5 else 0
-                                }
-                            )
-                            conn.execute(
-                                text("""
-                                INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes)
-                                VALUES (:ts, :sku, 'POS_SCAN', :qty, 'Live POS checkout decrement')
-                                """),
-                                {"ts": datetime.now(), "sku": selected_sku, "qty": -scan_qty}
-                            )
-                        st.toast(f"✅ Deducted {scan_qty}x {sku_data['name']} from DB.", icon="🛒")
-                        st.rerun()
-                    except Exception as err:
-                        st.error(f"Transaction Failed: {err}")
-                else:
-                    st.error("No database engine connected.")
+            # 1. STOCK IN (RECEIVING)
+            if "Stock IN" in action_type:
+                notes_in = st.text_input("Receipt Note / PO Reference", value="Vendor Delivery Intake")
+                if st.button("📥 Commit Stock IN (+ Units)", type="primary", use_container_width=True):
+                    if is_connected:
+                        try:
+                            with engine.begin() as conn:
+                                stock_col = prod_map.get("stock", "stock")
+                                sku_col = prod_map.get("sku", "sku")
+                                # Increment stock
+                                conn.execute(
+                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} + :qty WHERE {sku_col} = :sku"),
+                                    {"qty": units_qty, "sku": selected_sku}
+                                )
+                                # Log movement
+                                conn.execute(
+                                    text("""
+                                    INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes)
+                                    VALUES (:ts, :sku, 'STOCK_IN (Receiving)', :qty, :notes)
+                                    """),
+                                    {"ts": datetime.now(), "sku": selected_sku, "qty": units_qty, "notes": notes_in}
+                                )
+                            st.toast(f"✅ Added +{units_qty}x {sku_data['name']} to inventory.", icon="📥")
+                            st.rerun()
+                        except Exception as err:
+                            st.error(f"Stock IN Failed: {err}")
+                    else:
+                        st.error("Database not connected.")
+
+            # 2. POS CHECKOUT SCAN
+            elif "POS Scan" in action_type:
+                if st.button("⚡ Execute POS Transaction (- Units)", type="primary", use_container_width=True):
+                    if is_connected:
+                        if sku_data['stock'] < units_qty:
+                            st.error(f"Insufficient stock! Available: {sku_data['stock']} units.")
+                        else:
+                            try:
+                                with engine.begin() as conn:
+                                    stock_col = prod_map.get("stock", "stock")
+                                    sku_col = prod_map.get("sku", "sku")
+                                    # Decrement stock
+                                    conn.execute(
+                                        text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku"),
+                                        {"qty": units_qty, "sku": selected_sku}
+                                    )
+                                    # Append to sales ledger
+                                    conn.execute(
+                                        text("""
+                                        INSERT INTO sales_ledger (transaction_date, sku, product_name, category, quantity_sold, is_weekend)
+                                        VALUES (:tdate, :sku, :name, :cat, :qty, :wkd)
+                                        """),
+                                        {
+                                            "tdate": datetime.now(),
+                                            "sku": selected_sku,
+                                            "name": sku_data["name"],
+                                            "cat": sku_data["category"],
+                                            "qty": units_qty,
+                                            "wkd": 1 if datetime.now().weekday() >= 5 else 0
+                                        }
+                                    )
+                                    # Log movement
+                                    conn.execute(
+                                        text("""
+                                        INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes)
+                                        VALUES (:ts, :sku, 'POS_SCAN', :qty, 'Live POS checkout decrement')
+                                        """),
+                                        {"ts": datetime.now(), "sku": selected_sku, "qty": -units_qty, "notes": "POS register sale"}
+                                    )
+                                st.toast(f"✅ Deducted -{units_qty}x {sku_data['name']} from DB.", icon="🛒")
+                                st.rerun()
+                            except Exception as err:
+                                st.error(f"POS Transaction Failed: {err}")
+                    else:
+                        st.error("Database not connected.")
+
+            # 3. STOCK OUT (WRITE-OFF / DAMAGE)
+            elif "Stock OUT" in action_type:
+                out_reason = st.selectbox("Reason for Outflow", ["Damaged / Spoiled Goods", "Expired Shelf-Life", "Inventory Audit Shrinkage", "Internal Store Use"])
+                if st.button("📤 Commit Stock OUT (- Units)", type="primary", use_container_width=True):
+                    if is_connected:
+                        if sku_data['stock'] < units_qty:
+                            st.error(f"Insufficient stock to write off! Available: {sku_data['stock']} units.")
+                        else:
+                            try:
+                                with engine.begin() as conn:
+                                    stock_col = prod_map.get("stock", "stock")
+                                    sku_col = prod_map.get("sku", "sku")
+                                    # Decrement stock
+                                    conn.execute(
+                                        text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku"),
+                                        {"qty": units_qty, "sku": selected_sku}
+                                    )
+                                    # Log movement
+                                    conn.execute(
+                                        text("""
+                                        INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes)
+                                        VALUES (:ts, :sku, 'STOCK_OUT (Write-Off)', :qty, :notes)
+                                        """),
+                                        {"ts": datetime.now(), "sku": selected_sku, "qty": -units_qty, "notes": out_reason}
+                                    )
+                                st.toast(f"✅ Written off -{units_qty}x {sku_data['name']}.", icon="📤")
+                                st.rerun()
+                            except Exception as err:
+                                st.error(f"Stock OUT Failed: {err}")
+                    else:
+                        st.error("Database not connected.")
         else:
             st.warning("No catalog data available.")
 
