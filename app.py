@@ -1,5 +1,7 @@
+import os
 import re
 import math
+import json
 import smtplib
 from datetime import datetime
 from email.mime.text import MIMEText
@@ -9,6 +11,14 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine, text, inspect
+
+# Google GenAI SDK for Natural Language Understanding
+try:
+    from google import genai
+    from google.genai import types
+    GENAI_AVAILABLE = True
+except ImportError:
+    GENAI_AVAILABLE = False
 
 # ==========================================
 # PAGE CONFIGURATION & DARK THEME
@@ -126,7 +136,7 @@ def get_db_engine(connection_string: str):
         return None
 
 # ==========================================
-# SIDEBAR CONFIGURATION (ZERO API KEY PROMPT)
+# SIDEBAR CONFIGURATION (ZERO API KEY PROMPTS)
 # ==========================================
 with st.sidebar:
     st.markdown("### ⚡ **inventro.ai**")
@@ -251,81 +261,53 @@ def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.D
 analytics_df = compute_analytics(df_products, df_sales)
 
 # ==========================================
-# 100% OFFLINE LOCAL SEMANTIC AI ENGINE
+# INTELLIGENT AI AGENT ENGINE (GEMINI LLM)
 # ==========================================
-def local_ai_agent(user_query: str, matrix: pd.DataFrame) -> str:
-    """Processes natural language questions locally using vectorized tabular reasoning."""
-    if matrix.empty:
-        return "No inventory data is loaded. Please connect a database to analyze."
+def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame) -> str:
+    """Uses Gemini 2.5 Flash to reason over live inventory data."""
+    api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 
-    q = user_query.lower()
-    critical = matrix[matrix["reorder_status"] == "RESTOCK NEEDED"]
-    perishables = matrix[matrix["expiry_risk"] == "HIGH EXPIRY RISK"]
-    overstocked = matrix[matrix["days_runway"] > 30]
-
-    # 1. Specific Product Lookup
-    for _, row in matrix.iterrows():
-        name_tokens = [t for t in re.split(r'\s+', row["name"].lower()) if len(t) > 2]
-        if row["sku"].lower() in q or (name_tokens and any(token in q for token in name_tokens)):
-            return (
-                f"**Analysis for {row['name']} (`{row['sku']}`):**\n"
-                f"- **Stock Level:** {row['stock']} units on hand\n"
-                f"- **Safety Stock & ROP:** Safety Cushion = {row['safety_stock']}, Reorder Trigger = {row['rop']}\n"
-                f"- **Sales Velocity:** {row['daily_velocity']:.1f} units/day (Runway: **{row['days_runway']} days**)\n"
-                f"- **Supplier:** {row['vendor']} (Lead time: {row['lead_time']} days, MOQ: {row['moq']})\n"
-                f"- **Current Status:** {'🚨 **RESTOCK REQUIRED** (Suggested Order: +' + str(row['suggested_po_qty']) + ' units)' if row['reorder_status'] == 'RESTOCK NEEDED' else '🟢 **Stock is Healthy**'}"
-            )
-
-    # 2. Stockout & Depletion Intent
-    if any(k in q for k in ["run out", "stockout", "lowest", "first", "deplete", "empty", "critical", "danger"]):
-        worst = matrix.sort_values(by="days_runway").iloc[0]
+    if not api_key:
         return (
-            f"**`{worst['name']}`** is projected to run out first:\n"
-            f"- **Current Stock:** {worst['stock']} units\n"
-            f"- **Daily Consumption:** {worst['daily_velocity']:.1f} units/day\n"
-            f"- **Estimated Runway:** Only **{worst['days_runway']} days remaining** before complete stockout."
+            "⚙️ **LLM Engine Setup Required:**\n\n"
+            "To enable true conversational AI, add your Gemini API key to **Streamlit Secrets**:\n"
+            "1. Click `Manage app` (bottom right) -> `⋮` -> `Settings` -> `Secrets`.\n"
+            "2. Add `GEMINI_API_KEY = \"AIzaSy...\"` and save.\n\n"
+            "*Users visiting your site will never be asked for an API key.*"
         )
 
-    # 3. Replenishment & Purchase Order Intent
-    if any(k in q for k in ["order", "purchase", "buy", "restock", "po", "replenish", "supplier", "vendor"]):
-        if not critical.empty:
-            directives = []
-            for _, r in critical.iterrows():
-                directives.append(f"• **{r['vendor']}**: Order **{r['suggested_po_qty']} units** of *{r['name']}* (Current: {r['stock']} / ROP: {r['rop']})")
-            return "**Active Purchase Order Directives:**\n" + "\n".join(directives)
-        return "✨ All product lines are currently above their statistical reorder points. Zero purchase orders required."
+    if not GENAI_AVAILABLE:
+        return "⚠️ `google-genai` is not installed. Add `google-genai` to your `requirements.txt`."
 
-    # 4. Expiration & Shelf-Life Intent
-    if any(k in q for k in ["expire", "expiry", "perish", "spoil", "shelf life", "decay"]):
-        if not perishables.empty:
-            exp_lines = []
-            for _, r in perishables.iterrows():
-                exp_lines.append(f"• **{r['name']}**: **{r['expiry_days']} days left** (Stock: {r['stock']} units, Runway: {r['days_runway']} days)")
-            return "**Urgent Perishability Alerts (≤ 7 Days):**\n" + "\n".join(exp_lines)
-        return "✨ All items have sufficient shelf-life buffers (> 7 days remaining)."
+    try:
+        client = genai.Client(api_key=api_key)
 
-    # 5. Overstock & Working Capital Intent
-    if any(k in q for k in ["overstock", "excess", "slow", "capital", "dead stock", "too much"]):
-        if not overstocked.empty:
-            slowest = overstocked.sort_values(by="days_runway", ascending=False).head(3)
-            slow_lines = [f"• **{r['name']}**: **{r['days_runway']} days runway** ({r['stock']} units in stock)" for _, r in slowest.iterrows()]
-            return "**Highest Overstock / Capital Locked Lines:**\n" + "\n".join(slow_lines) + "\n\n*Recommendation: Pause restock orders on these lines.*"
+        data_context = matrix[[
+            "sku", "name", "category", "stock", "lead_time", 
+            "daily_velocity", "safety_stock", "rop", "days_runway", 
+            "reorder_status", "expiry_days", "suggested_po_qty", "vendor"
+        ]].to_dict(orient="records")
 
-    # 6. Top Fast Movers / Best Sellers
-    if any(k in q for k in ["fast", "popular", "top", "best", "velocity", "highest sales"]):
-        top_sellers = matrix.sort_values(by="daily_velocity", ascending=False).head(3)
-        top_lines = [f"• **{r['name']}**: **{r['daily_velocity']:.1f} units/day** (Stock: {r['stock']})" for _, r in top_sellers.iterrows()]
-        return "**Top High-Velocity Products:**\n" + "\n".join(top_lines)
+        system_prompt = f"""
+You are the AI Brain of inventro.ai, an autonomous retail inventory system.
+You have real-time access to the store's inventory database:
 
-    # Default Full Summary
-    return (
-        f"**Fleet Intelligence Overview:**\n"
-        f"- **Total Catalog:** {len(matrix)} SKUs across {matrix['category'].nunique()} categories\n"
-        f"- **Inventory Volume:** {int(matrix['stock'].sum()):,} units active in fleet\n"
-        f"- **Depletion Warnings:** {len(critical)} lines need replenishment\n"
-        f"- **Perishable Risks:** {len(perishables)} lines near expiration\n"
-        f"- **Average Fleet Runway:** {round(matrix['days_runway'].mean(), 1)} days"
-    )
+CURRENT INVENTORY DATASET:
+{json.dumps(data_context, default=str)}
+
+GUIDELINES:
+1. Understand conversational greetings ("hi", "hello", "how are you") naturally and invite questions about the inventory.
+2. If asked about stock levels, risks, projections, reorders, or decay, calculate the exact answers using the dataset above.
+3. Be concise, direct, and helpful. Use bold text and bullet points for readability. Avoid generic robotic fluff.
+"""
+
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[system_prompt, f"User: {user_query}"]
+        )
+        return response.text
+    except Exception as err:
+        return f"AI Reasoning Error: {str(err)}"
 
 # ==========================================
 # MAIN INTERFACE TABS
@@ -345,7 +327,7 @@ tab_agent, tab_analytics, tab_pos, tab_dispatcher, tab_infra = st.tabs([
 # TAB 1: AUTONOMOUS AI AGENT & CHATBOT
 # ------------------------------------------
 with tab_agent:
-    st.markdown("#### **🤖 Autonomous AI Supply Agent & Copilot (100% Offline & Free)**")
+    st.markdown("#### **🤖 Autonomous AI Supply Agent & Intelligent Copilot**")
     st.caption("Self-directed diagnostic loop analyzing stockout vectors, lead times, and decay risks in real time.")
     
     if analytics_df.empty:
@@ -405,8 +387,9 @@ with tab_agent:
                 st.markdown(user_prompt)
 
             with st.chat_message("assistant"):
-                ai_answer = local_ai_agent(user_prompt, analytics_df)
-                st.markdown(ai_answer)
+                with st.spinner("Analyzing live inventory..."):
+                    ai_answer = intelligent_ai_agent(user_prompt, analytics_df)
+                    st.markdown(ai_answer)
             
             st.session_state.chat_messages.append({"role": "assistant", "content": ai_answer})
 
@@ -427,7 +410,7 @@ with tab_analytics:
 # ------------------------------------------
 with tab_pos:
     st.markdown("#### **⚡ Real-Time Stock Movement Terminal (In / Out / POS)**")
-    st.caption("Execute incoming vendor receipts, live checkout scans, or damaged/expired write-offs directly to the database.")
+    st.caption("Execute incoming vendor receipts, live checkout scans, or write-offs directly to the database.")
     
     pos_col1, pos_col2 = st.columns([1.1, 1.4])
     
@@ -437,7 +420,6 @@ with tab_pos:
             selected_sku = st.selectbox("Select Barcode / SKU", sku_options)
             sku_data = analytics_df[analytics_df["sku"] == selected_sku].iloc[0]
             
-            # Action Selector: Stock IN vs POS Checkout vs Stock OUT
             action_type = st.radio(
                 "Select Movement Operation:",
                 ["📥 Stock IN (Receive Goods)", "⚡ POS Scan (Customer Checkout)", "📤 Stock OUT (Damage / Write-Off)"],
@@ -453,7 +435,7 @@ with tab_pos:
             **Active ROP:** `{sku_data['rop']} units`  
             """)
             
-            # 1. STOCK IN (RECEIVING)
+            # 1. STOCK IN
             if "Stock IN" in action_type:
                 notes_in = st.text_input("Receipt Note / PO Reference", value="Vendor Delivery Intake")
                 if st.button("📥 Commit Stock IN (+ Units)", type="primary", use_container_width=True):
@@ -462,12 +444,10 @@ with tab_pos:
                             with engine.begin() as conn:
                                 stock_col = prod_map.get("stock", "stock")
                                 sku_col = prod_map.get("sku", "sku")
-                                # Increment stock
                                 conn.execute(
                                     text(f"UPDATE products_master SET {stock_col} = {stock_col} + :qty WHERE {sku_col} = :sku"),
                                     {"qty": units_qty, "sku": selected_sku}
                                 )
-                                # Log movement
                                 conn.execute(
                                     text("""
                                     INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes)
@@ -493,12 +473,10 @@ with tab_pos:
                                 with engine.begin() as conn:
                                     stock_col = prod_map.get("stock", "stock")
                                     sku_col = prod_map.get("sku", "sku")
-                                    # Decrement stock
                                     conn.execute(
                                         text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku"),
                                         {"qty": units_qty, "sku": selected_sku}
                                     )
-                                    # Append to sales ledger
                                     conn.execute(
                                         text("""
                                         INSERT INTO sales_ledger (transaction_date, sku, product_name, category, quantity_sold, is_weekend)
@@ -513,7 +491,6 @@ with tab_pos:
                                             "wkd": 1 if datetime.now().weekday() >= 5 else 0
                                         }
                                     )
-                                    # Log movement
                                     conn.execute(
                                         text("""
                                         INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes)
@@ -528,7 +505,7 @@ with tab_pos:
                     else:
                         st.error("Database not connected.")
 
-            # 3. STOCK OUT (WRITE-OFF / DAMAGE)
+            # 3. STOCK OUT
             elif "Stock OUT" in action_type:
                 out_reason = st.selectbox("Reason for Outflow", ["Damaged / Spoiled Goods", "Expired Shelf-Life", "Inventory Audit Shrinkage", "Internal Store Use"])
                 if st.button("📤 Commit Stock OUT (- Units)", type="primary", use_container_width=True):
@@ -540,12 +517,10 @@ with tab_pos:
                                 with engine.begin() as conn:
                                     stock_col = prod_map.get("stock", "stock")
                                     sku_col = prod_map.get("sku", "sku")
-                                    # Decrement stock
                                     conn.execute(
                                         text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku"),
                                         {"qty": units_qty, "sku": selected_sku}
                                     )
-                                    # Log movement
                                     conn.execute(
                                         text("""
                                         INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes)
