@@ -135,7 +135,7 @@ def get_db_engine(connection_string: str):
         return None
 
 # ==========================================
-# SIDEBAR CONFIGURATION (ZERO API KEY PROMPTS)
+# SIDEBAR CONFIGURATION
 # ==========================================
 with st.sidebar:
     st.markdown("### ⚡ **inventro.ai**")
