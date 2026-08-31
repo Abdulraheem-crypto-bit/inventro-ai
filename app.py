@@ -1,17 +1,28 @@
-# app.py - inventro.ai: Enterprise Multi-Database Autonomous Inventory OS
+import os
+import re
+import json
+import math
+import smtplib
+from datetime import datetime, timedelta
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
-from datetime import datetime, date
 from sqlalchemy import create_engine, text, inspect
-from urllib.parse import quote_plus
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-import re
-import math
 
+# Optional AI SDK import for Schema Inference Agent
+try:
+    from google import genai
+    from google.genai import types
+    GENAI_AVAILABLE = True
+except ImportError:
+    GENAI_AVAILABLE = False
+
+# ==========================================
+# PAGE CONFIGURATION & STYLING
+# ==========================================
 st.set_page_config(
     page_title="inventro.ai | Autonomous Retail OS",
     page_icon="⚡",
@@ -19,787 +30,602 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ==========================================
-# 0. Deep Aurora Mesh Theme
-# ==========================================
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@400;600;700&display=swap');
     
     html, body, [class*="css"] {
         font-family: 'Space Grotesk', sans-serif;
     }
-    
-    code, pre, .font-mono {
+    code, pre {
         font-family: 'JetBrains Mono', monospace !important;
     }
-
-    .stApp {
-        background-color: #05070E;
-        background-image: 
-            radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.22) 0px, transparent 45%),
-            radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.20) 0px, transparent 45%),
-            radial-gradient(at 50% 50%, rgba(139, 92, 246, 0.12) 0px, transparent 55%),
-            radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.15) 0px, transparent 50%),
-            linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
-        background-size: 100% 100%, 100% 100%, 100% 100%, 100% 100%, 36px 36px, 36px 36px;
-        background-attachment: fixed;
-        color: #F8FAFC;
-    }
-
-    .saas-card {
-        background: linear-gradient(135deg, rgba(15, 23, 42, 0.75) 0%, rgba(7, 12, 26, 0.85) 100%);
+    .metric-card {
+        background: rgba(255, 255, 255, 0.03);
         border: 1px solid rgba(255, 255, 255, 0.08);
-        box-shadow: 0 12px 35px -8px rgba(0, 0, 0, 0.7), inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(24px);
-        -webkit-backdrop-filter: blur(24px);
-        border-radius: 16px;
-        padding: 22px 24px;
-        position: relative;
-        overflow: hidden;
-        transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin-bottom: 12px;
     }
-
-    .saas-card::before {
-        content: "";
-        position: absolute;
-        top: 0; left: 0; right: 0;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.6), rgba(6, 182, 212, 0.6), transparent);
-    }
-
-    .saas-card:hover {
-        border-color: rgba(99, 102, 241, 0.4);
-        box-shadow: 0 16px 40px -10px rgba(99, 102, 241, 0.25);
-        transform: translateY(-2px);
-    }
-
-    .metric-value {
-        font-size: 2.3rem;
-        font-weight: 700;
-        letter-spacing: -0.04em;
-        line-height: 1.1;
-        margin: 6px 0;
-        background: linear-gradient(135deg, #FFFFFF 30%, #94A3B8 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }
-    
-    .metric-label {
-        font-size: 0.75rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-        color: #94A3B8;
-    }
-
-    .metric-subtext {
+    .badge-critical {
+        background-color: rgba(239, 68, 68, 0.2);
+        color: #f87171;
+        padding: 4px 10px;
+        border-radius: 6px;
         font-size: 0.8rem;
-        font-weight: 500;
-        color: #64748B;
-    }
-
-    .badge-live {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        background: rgba(6, 182, 212, 0.12);
-        color: #22D3EE;
-        border: 1px solid rgba(6, 182, 212, 0.35);
-        padding: 5px 14px;
-        border-radius: 9999px;
-        font-size: 0.75rem;
-        font-weight: 700;
-        letter-spacing: 0.06em;
-        box-shadow: 0 0 15px rgba(6, 182, 212, 0.2);
-    }
-
-    .pulse-dot {
-        width: 8px;
-        height: 8px;
-        background-color: #22D3EE;
-        border-radius: 50%;
-        box-shadow: 0 0 10px #22D3EE;
-        animation: pulse 1.6s infinite ease-in-out;
-    }
-
-    @keyframes pulse {
-        0% { transform: scale(0.9); opacity: 0.8; box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.8); }
-        70% { transform: scale(1.15); opacity: 1; box-shadow: 0 0 0 8px rgba(34, 211, 238, 0); }
-        100% { transform: scale(0.9); opacity: 0.8; box-shadow: 0 0 0 0 rgba(34, 211, 238, 0); }
-    }
-
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background: rgba(15, 23, 42, 0.7);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        padding: 6px;
-        border-radius: 14px;
-        backdrop-filter: blur(12px);
-    }
-
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 10px;
-        color: #94A3B8;
         font-weight: 600;
-        padding: 8px 20px;
-        transition: all 0.2s ease;
+        border: 1px solid rgba(239, 68, 68, 0.4);
     }
-
-    .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(6, 182, 212, 0.2) 100%) !important;
-        color: #FFFFFF !important;
-        border: 1px solid rgba(99, 102, 241, 0.45) !important;
-        box-shadow: 0 4px 15px rgba(99, 102, 241, 0.25);
-    }
-
-    .stButton>button {
-        border-radius: 10px;
+    .badge-healthy {
+        background-color: rgba(34, 197, 94, 0.2);
+        color: #4ade80;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 0.8rem;
         font-weight: 600;
-        letter-spacing: 0.02em;
+        border: 1px solid rgba(34, 197, 94, 0.4);
     }
 </style>
 """, unsafe_allow_html=True)
 
-# One-Shot Animation Script
-def trigger_cash_rain():
-    cash_script = """
-    <script>
-    (function() {
-        const parentDoc = window.parent.document;
-        const container = parentDoc.createElement('div');
-        container.style.position = 'fixed';
-        container.style.top = '0';
-        container.style.left = '0';
-        container.style.width = '100vw';
-        container.style.height = '100vh';
-        container.style.pointerEvents = 'none';
-        container.style.zIndex = '9999999';
-        parentDoc.body.appendChild(container);
+# ==========================================
+# AI SCHEMA RESOLUTION & FALLBACK AGENT
+# ==========================================
+COLUMN_SYNONYMS = {
+    "sku": ["sku", "product_id", "productid", "item_id", "itemid", "item_code", "itemcode", "barcode", "code", "prod_id"],
+    "name": ["name", "product_name", "productname", "item_name", "itemname", "title", "description", "product", "article"],
+    "category": ["category", "cat", "department", "dept", "product_type", "type", "group", "segment"],
+    "stock": ["stock", "current_stock", "qty", "quantity", "inventory", "on_hand", "stock_qty", "units_in_stock", "qty_on_hand"],
+    "lead_time": ["lead_time", "leadtime", "lead_days", "delivery_days", "transit_time", "supplier_lead_time", "tat_days"],
+    "moq": ["moq", "min_order_qty", "min_order", "minimum_order", "min_qty"],
+    "pack_size": ["pack_size", "packsize", "case_size", "bundle_size", "package_size", "multiplier"],
+    "vendor": ["vendor", "supplier", "vendor_name", "supplier_name", "distributor", "manufacturer"],
+    "email": ["email", "vendor_email", "supplier_email", "contact_email", "dispatch_email", "inbox"],
+    "expiry_days": ["expiry_days", "shelf_life", "expiry", "expiration_days", "days_to_expire", "perishability_days"],
+    "quantity_sold": ["quantity_sold", "qty_sold", "units_sold", "sales", "volume", "sold_qty", "quantity"],
+    "transaction_date": ["transaction_date", "timestamp", "date", "sale_date", "txn_date", "created_at"]
+}
 
-        const symbols = ['💵', '💸', '💰', '💲', '🤑'];
-        for (let i = 0; i < 60; i++) {
-            const el = parentDoc.createElement('div');
-            el.innerText = symbols[Math.floor(Math.random() * symbols.length)];
-            el.style.position = 'absolute';
-            el.style.top = '-60px';
-            el.style.left = (Math.random() * 96) + 'vw';
-            el.style.fontSize = (Math.random() * 22 + 24) + 'px';
-            el.style.opacity = '1';
-            el.style.transition = `top ${Math.random() * 1.5 + 2.2}s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform ${Math.random() * 1.5 + 2.2}s ease, opacity 0.6s ease`;
-            container.appendChild(el);
+def clean_name(s: str) -> str:
+    return re.sub(r'[\s_\-]+', '', str(s)).lower()
 
-            setTimeout(() => {
-                el.style.top = '105vh';
-                el.style.transform = `rotate(${Math.random() * 720 - 360}deg)`;
-            }, 50 + (i * 20));
-        }
+def resolve_schema_heuristic(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Heuristic fallback matcher using regex and token synonyms."""
+    if df.empty:
+        return df, {}
+    
+    normalized_df = df.copy()
+    detected_mapping = {}
+    cleaned_df_cols = {clean_name(c): c for c in df.columns}
 
-        setTimeout(() => {
-            container.remove();
-        }, 3800);
-    })();
-    </script>
+    for canonical_key, synonyms in COLUMN_SYNONYMS.items():
+        for syn in synonyms:
+            cleaned_syn = clean_name(syn)
+            if cleaned_syn in cleaned_df_cols:
+                original_col = cleaned_df_cols[cleaned_syn]
+                detected_mapping[canonical_key] = original_col
+                normalized_df[canonical_key] = df[original_col]
+                break
+
+    return normalized_df, detected_mapping
+
+def resolve_schema_with_ai(df: pd.DataFrame, table_hint: str = "products", gemini_api_key: str = None) -> tuple[pd.DataFrame, dict]:
     """
-    components.html(cash_script, height=0, width=0)
+    Autonomous LLM Schema Resolution Agent.
+    Inspects column names and sample data rows using Gemini to build an intelligent mapping.
+    Falls back to heuristic token matching if the LLM key is absent or unavailable.
+    """
+    if df.empty:
+        return df, {}
 
-# ==========================================
-# 1. Multi-Engine Database Connection Gateway
-# ==========================================
-def clean_postgres_uri(raw_uri: str) -> str:
-    """Sanitizes PostgreSQL connection strings for psycopg2 driver compatibility."""
-    uri = raw_uri.strip().strip("'\"")
-    if uri.startswith("postgres://"):
-        uri = uri.replace("postgres://", "postgresql+psycopg2://", 1)
-    elif uri.startswith("postgresql://") and not uri.startswith("postgresql+psycopg2://"):
-        uri = uri.replace("postgresql://", "postgresql+psycopg2://", 1)
-    uri = re.sub(r'[&?]channel_binding=[^&]*', '', uri)
-    if "?" not in uri and "&" in uri:
-        uri = uri.replace("&", "?", 1)
-    return uri
+    if not GENAI_AVAILABLE or not gemini_api_key:
+        normalized_df, mapping = resolve_schema_heuristic(df)
+        return apply_canonical_defaults(normalized_df), mapping
 
-@st.cache_resource(ttl=300)
-def create_db_connection(conn_mode, db_type, params):
     try:
-        if conn_mode == "Connection URL / URI":
-            raw_uri = params.get("uri", "").strip()
-            if not raw_uri:
-                return None, False, "Please enter your database connection URL to connect."
-            
-            clean_uri = clean_postgres_uri(raw_uri)
-            engine = create_engine(clean_uri, pool_pre_ping=True, pool_recycle=300)
-            return engine, True, ""
+        sample_rows = df.head(3).to_dict(orient="records")
+        client = genai.Client(api_key=gemini_api_key)
         
-        else:
-            host = params.get("host", "").strip()
-            if not host:
-                return None, False, "Please enter Host address."
+        prompt = f"""
+You are an expert Data Engineer & Schema Resolution Agent.
+Map the detected table columns to our target canonical fields based on names and data examples.
 
-            port = str(params.get("port", "")).strip()
-            dbname = params.get("dbname", "").strip()
-            if not dbname:
-                return None, False, "Please enter Database Name."
+Canonical Target Fields:
+- 'sku': Product identifier, item code, barcode, or primary key.
+- 'name': Product description, item name, title.
+- 'category': Department, product category, group.
+- 'stock': Current available stock, quantity on hand.
+- 'lead_time': Supplier turnaround in days.
+- 'moq': Minimum order quantity.
+- 'pack_size': Case multiplier / packaging bundle size.
+- 'vendor': Supplier or distributor name.
+- 'email': Supplier contact email.
+- 'expiry_days': Remaining shelf life / days to expire.
+- 'quantity_sold': Count of units decremented/sold.
+- 'transaction_date': Transaction timestamp or date.
 
-            user = params.get("user", "").strip()
-            raw_pwd = params.get("password", "")
-            pwd = quote_plus(raw_pwd) if raw_pwd else ""
-            pwd_str = f":{pwd}" if pwd else ""
-            port_str = f":{port}" if port else ""
+Table Context: {table_hint}
+Detected Columns: {list(df.columns)}
+Data Sample: {json.dumps(sample_rows, default=str)}
 
-            if db_type == "PostgreSQL":
-                if not user:
-                    return None, False, "Username required for PostgreSQL."
-                uri = f"postgresql+psycopg2://{user}{pwd_str}@{host}{port_str}/{dbname}"
-                return create_engine(clean_postgres_uri(uri), pool_pre_ping=True, pool_recycle=300), True, ""
-                
-            elif db_type == "MySQL / MariaDB":
-                if not user:
-                    user = "root"
-                uri = f"mysql+pymysql://{user}{pwd_str}@{host}{port_str}/{dbname}"
-                return create_engine(uri, pool_pre_ping=True, pool_recycle=300), True, ""
-                
-            elif db_type == "Microsoft SQL Server":
-                driver = params.get("driver", "ODBC Driver 17 for SQL Server").replace(" ", "+")
-                uri = f"mssql+pyodbc://{user}{pwd_str}@{host}{port_str}/{dbname}?driver={driver}"
-                return create_engine(uri, pool_pre_ping=True, pool_recycle=300), True, ""
-                
-            return None, False, "Unsupported engine selected."
-    except Exception as e:
-        return None, False, str(e)
+Return ONLY a valid JSON object where keys are the detected column names and values are the matching canonical fields (or null if irrelevant).
+"""
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.0
+            )
+        )
+        inferred = json.loads(response.text)
+        
+        normalized_df = df.copy()
+        applied_mapping = {}
+        for original_col, canonical_key in inferred.items():
+            if canonical_key and original_col in df.columns:
+                applied_mapping[canonical_key] = original_col
+                normalized_df[canonical_key] = df[original_col]
 
-def init_tables_safely(engine, db_type):
-    """Provisions standard retail inventory schemas across SQL dialects."""
-    if engine is None:
-        return False, "No active database connection."
+        # Combine with heuristics for any unmapped canonical fields
+        heuristic_df, heuristic_mapping = resolve_schema_heuristic(df)
+        for k, v in heuristic_mapping.items():
+            if k not in applied_mapping:
+                applied_mapping[k] = v
+                normalized_df[k] = heuristic_df[k]
 
-    if db_type == "MySQL / MariaDB":
-        auto_id = "INT AUTO_INCREMENT PRIMARY KEY"
-    elif db_type == "Microsoft SQL Server":
-        auto_id = "INT IDENTITY(1,1) PRIMARY KEY"
-    else:
-        auto_id = "SERIAL PRIMARY KEY"
+        return apply_canonical_defaults(normalized_df), applied_mapping
 
+    except Exception:
+        normalized_df, mapping = resolve_schema_heuristic(df)
+        return apply_canonical_defaults(normalized_df), mapping
+
+def apply_canonical_defaults(df: pd.DataFrame) -> pd.DataFrame:
+    """Injects standard safe defaults for missing optional columns to prevent runtime math failures."""
+    defaults = {
+        "sku": [f"SKU_{i+1:03d}" for i in range(len(df))] if "sku" not in df.columns else df["sku"],
+        "name": "Unnamed SKU",
+        "category": "General",
+        "stock": 0,
+        "lead_time": 2,
+        "moq": 10,
+        "pack_size": 1,
+        "vendor": "Default Supplier",
+        "email": "",
+        "expiry_days": 30,
+        "quantity_sold": 1
+    }
+    for field, default_val in defaults.items():
+        if field not in df.columns:
+            df[field] = default_val
+    return df
+
+# ==========================================
+# DATABASE ENGINE CONNECTION HANDLER
+# ==========================================
+@st.cache_resource(show_spinner=False)
+def get_db_engine(connection_string: str):
+    if not connection_string or not connection_string.strip():
+        return None
     try:
+        engine = create_engine(
+            connection_string.strip(),
+            pool_pre_ping=True,
+            pool_recycle=300
+        )
         with engine.connect() as conn:
-            conn.execute(text(f"""
-                CREATE TABLE IF NOT EXISTS products_master (
-                    sku VARCHAR(64) PRIMARY KEY,
-                    name VARCHAR(255),
-                    category VARCHAR(64),
-                    lead_time INT DEFAULT 2,
-                    moq INT DEFAULT 10,
-                    pack_size INT DEFAULT 1,
-                    vendor VARCHAR(255),
-                    email VARCHAR(255),
-                    stock INT DEFAULT 0,
-                    expiry_days INT DEFAULT 30
-                );
-            """))
-            conn.execute(text(f"""
-                CREATE TABLE IF NOT EXISTS sales_ledger (
-                    id {auto_id},
-                    transaction_date VARCHAR(32),
-                    sku VARCHAR(64),
-                    product_name VARCHAR(255),
-                    category VARCHAR(64),
-                    quantity_sold INT,
-                    is_weekend INT DEFAULT 0
-                );
-            """))
-            conn.execute(text(f"""
-                CREATE TABLE IF NOT EXISTS stock_movements (
-                    id {auto_id},
-                    movement_timestamp VARCHAR(64),
-                    sku VARCHAR(64),
-                    movement_type VARCHAR(64),
-                    quantity INT,
-                    notes VARCHAR(255)
-                );
-            """))
-            conn.commit()
-        return True, "Standard retail schema provisioned successfully."
+            conn.execute(text("SELECT 1"))
+        return engine
     except Exception as e:
-        return False, str(e)
+        st.sidebar.error(f"Database Handshake Failed: {e}")
+        return None
 
 # ==========================================
-# 2. SMTP Mail Dispatcher
-# ==========================================
-def send_real_email(sender_email, sender_password, receiver_email, subject, body, smtp_server="smtp.gmail.com", smtp_port=587):
-    if not sender_email or not sender_password:
-        return False, "Please configure Sender Email and App Password in the sidebar."
-    
-    clean_sender = re.sub(r'[\s\xa0\u200b\uFEFF]+', '', str(sender_email)).strip()
-    clean_password = re.sub(r'[\s\xa0\u200b\uFEFF]+', '', str(sender_password)).strip()
-    clean_receiver = re.sub(r'[\s\xa0\u200b\uFEFF]+', '', str(receiver_email)).strip()
-    
-    try:
-        msg = MIMEMultipart()
-        msg["From"] = f"inventro.ai Operations <{clean_sender}>"
-        msg["To"] = clean_receiver
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain", "utf-8"))
-
-        server = smtplib.SMTP(smtp_server.strip(), int(smtp_port))
-        server.ehlo()
-        server.starttls()
-        server.ehlo()
-        server.login(clean_sender, clean_password)
-        server.sendmail(clean_sender, [clean_receiver], msg.as_string())
-        server.quit()
-        return True, "Purchase Order successfully transmitted via SMTP relay."
-    except Exception as e:
-        return False, f"SMTP Error: {str(e)}"
-
-# ==========================================
-# 3. Dynamic ROP Analytics Engine
-# ==========================================
-def run_analytics(df_sales, df_products):
-    if df_products.empty:
-        return pd.DataFrame(columns=[
-            "SKU", "Product", "Category", "Current Stock", "Reorder Point",
-            "Daily Velocity", "Stock Health", "Days Runway", "Status",
-            "Suggested Order", "Vendor", "Vendor Email", "Shelf Life", "Needs Restock"
-        ])
-
-    forecast_results = []
-    for _, product in df_products.iterrows():
-        sku = product["sku"]
-        sku_sales = df_sales[df_sales["sku"] == sku] if not df_sales.empty else pd.DataFrame()
-        
-        avg_demand = max(0.1, float(sku_sales["quantity_sold"].tail(14).mean())) if not sku_sales.empty else 1.0
-        demand_std = float(sku_sales["quantity_sold"].std()) if len(sku_sales) > 1 else 0.5
-        lead_time = int(product.get("lead_time", 2) or 2)
-        safety_stock = int(1.65 * demand_std * np.sqrt(lead_time))
-        reorder_point = int((avg_demand * lead_time) + safety_stock)
-        
-        current_stock = int(product.get("stock", 0) or 0)
-        days_left = round(current_stock / avg_demand, 1) if avg_demand > 0 else 99.0
-        needs_restock = current_stock <= reorder_point
-        
-        raw_order = max(0, (reorder_point * 2) - current_stock) if needs_restock else 0
-        pack_size = int(product.get("pack_size", 1) or 1)
-        rounded_order = int(np.ceil(raw_order / pack_size) * pack_size)
-        moq_val = int(product.get("moq", 1) or 1)
-        final_order = max(moq_val, rounded_order) if needs_restock else 0
-        
-        health_ratio = min(1.0, current_stock / (reorder_point * 1.5)) if reorder_point > 0 else 1.0
-        
-        forecast_results.append({
-            "SKU": sku,
-            "Product": product.get("name", sku),
-            "Category": product.get("category", "General"),
-            "Current Stock": current_stock,
-            "Reorder Point": reorder_point,
-            "Daily Velocity": round(avg_demand, 1),
-            "Stock Health": health_ratio,
-            "Days Runway": days_left,
-            "Status": "🚨 Restock Required" if needs_restock else "🟢 Optimal",
-            "Suggested Order": final_order,
-            "Vendor": product.get("vendor", "Primary Vendor"),
-            "Vendor Email": product.get("email", ""),
-            "Shelf Life": product.get("expiry_days", 30),
-            "Needs Restock": needs_restock
-        })
-    return pd.DataFrame(forecast_results)
-
-# ==========================================
-# 4. Sidebar Configuration (Clean & 100% User Input)
+# SIDEBAR CONTROLS & AUTHENTICATION
 # ==========================================
 with st.sidebar:
-    st.markdown("### 🗄️ Database Hub")
-    conn_mode = st.radio(
-        "Connection Mode:",
-        ["Connection URL / URI", "Host & Credentials"],
-        horizontal=True
-    )
-    
-    db_target = "PostgreSQL"
-    db_params = {}
-
-    if conn_mode == "Connection URL / URI":
-        db_params["uri"] = st.text_input(
-            "Database Connection URL:",
-            value="",
-            placeholder="postgresql://username:password@hostname:5432/dbname",
-            type="password",
-            help="Paste any PostgreSQL, MySQL, or cloud database connection string."
-        )
-    else:
-        db_target = st.selectbox(
-            "Platform Engine:",
-            ["PostgreSQL", "MySQL / MariaDB", "Microsoft SQL Server"]
-        )
-        
-        if db_target == "PostgreSQL":
-            db_params["host"] = st.text_input("Host", value="", placeholder="e.g. localhost or ep-xyz.neon.tech")
-            db_params["port"] = st.text_input("Port", value="", placeholder="e.g. 5432")
-            db_params["dbname"] = st.text_input("Database Name", value="", placeholder="e.g. postgres or my_database")
-            db_params["user"] = st.text_input("Username", value="", placeholder="e.g. postgres or my_user")
-            db_params["password"] = st.text_input("Password", value="", type="password", placeholder="••••••••")
-        elif db_target == "MySQL / MariaDB":
-            db_params["host"] = st.text_input("Host", value="", placeholder="e.g. localhost or 127.0.0.1")
-            db_params["port"] = st.text_input("Port", value="", placeholder="e.g. 3306")
-            db_params["dbname"] = st.text_input("Database Name", value="", placeholder="e.g. retail_db")
-            db_params["user"] = st.text_input("Username", value="", placeholder="e.g. root")
-            db_params["password"] = st.text_input("Password", value="", type="password", placeholder="••••••••")
-        elif db_target == "Microsoft SQL Server":
-            db_params["host"] = st.text_input("Host", value="", placeholder="e.g. localhost")
-            db_params["port"] = st.text_input("Port", value="", placeholder="e.g. 1433")
-            db_params["dbname"] = st.text_input("Database Name", value="", placeholder="e.g. master")
-            db_params["user"] = st.text_input("Username", value="", placeholder="e.g. sa")
-            db_params["password"] = st.text_input("Password", value="", type="password", placeholder="••••••••")
-            db_params["driver"] = st.selectbox("ODBC Driver", ["ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server"])
-
-    engine, conn_ok, err_msg = create_db_connection(conn_mode, db_target, db_params)
-    is_connected = False
-    detected_tables = []
-
-    if conn_ok and engine:
-        try:
-            with engine.connect() as test_conn:
-                test_conn.execute(text("SELECT 1;"))
-                inspector = inspect(engine)
-                detected_tables = inspector.get_table_names()
-            st.markdown(f"<div class='badge-live'><div class='pulse-dot'></div> Connected to Database</div>", unsafe_allow_html=True)
-            is_connected = True
-        except Exception as db_err:
-            st.error(f"⚠️ Connection Failed: {db_err}")
-    else:
-        if err_msg:
-            st.info(f"💡 {err_msg}")
-
+    st.markdown("### ⚡ **inventro.ai**")
+    st.caption("Autonomous Retail Inventory Engine")
     st.divider()
-    st.markdown("### 📧 SMTP Dispatch Gateway")
-    sender_email = st.text_input("Sender Email", value="", placeholder="procurement@company.com")
-    sender_password = st.text_input("App Password", value="", type="password", placeholder="16-character app password")
-    smtp_server = st.text_input("SMTP Server", value="", placeholder="smtp.gmail.com")
-    smtp_port = st.number_input("SMTP Port", min_value=1, max_value=65535, value=587)
 
-# Safe Data Retrieval
-df_products = pd.DataFrame()
-df_sales = pd.DataFrame()
-df_movements = pd.DataFrame()
+    st.markdown("**1. Database Configuration**")
+    connection_mode = st.radio("Connect via:", ["Connection URL / URI", "Host & Credentials"], horizontal=True)
+
+    db_uri = ""
+    if connection_mode == "Connection URL / URI":
+        db_uri = st.text_input(
+            "Database Connection URL",
+            placeholder="postgresql://user:pass@host/db?sslmode=require",
+            type="password"
+        )
+    else:
+        db_dialect = st.selectbox("Platform Engine", ["PostgreSQL", "MySQL", "MS SQL Server", "SQLite"])
+        db_host = st.text_input("Host", placeholder="ep-xyz.aws.neon.tech")
+        db_port = st.text_input("Port", placeholder="5432")
+        db_name = st.text_input("Database Name", placeholder="neondb")
+        db_user = st.text_input("Username", placeholder="neondb_owner")
+        db_pass = st.text_input("Password", placeholder="••••••••", type="password")
+
+        if db_host and db_name:
+            if db_dialect == "PostgreSQL":
+                db_uri = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port or '5432'}/{db_name}?sslmode=require"
+            elif db_dialect == "MySQL":
+                db_uri = f"mysql+pymysql://{db_user}:{db_pass}@{db_host}:{db_port or '3306'}/{db_name}"
+            elif db_dialect == "MS SQL Server":
+                db_uri = f"mssql+pyodbc://{db_user}:{db_pass}@{db_host}:{db_port or '1433'}/{db_name}?driver=ODBC+Driver+17+for+SQL+Server"
+            else:
+                db_uri = f"sqlite:///{db_name}.db"
+
+    gemini_key = st.text_input("Gemini API Key (Schema Agent)", placeholder="AIzaSy...", type="password")
+    
+    st.divider()
+    st.markdown("**2. SMTP Vendor Dispatcher**")
+    smtp_server = st.text_input("SMTP Server", value="smtp.gmail.com")
+    smtp_port = st.number_input("SMTP Port", value=587)
+    smtp_sender = st.text_input("Sender Email", placeholder="orders@retailstore.com")
+    smtp_password = st.text_input("Sender App Password", placeholder="••••••••", type="password")
+
+    sync_btn = st.button("🔄 Sync Database Feed", use_container_width=True)
+
+# Establish active database connection
+engine = get_db_engine(db_uri) if db_uri else None
+is_connected = engine is not None
+
+if is_connected:
+    st.sidebar.success("🟢 Connected to Database")
+else:
+    st.sidebar.warning("⚪ Waiting for Database Connection")
+
+# ==========================================
+# DATA INGESTION & AGENT NORMALIZATION
+# ==========================================
+raw_products = pd.DataFrame()
+raw_sales = pd.DataFrame()
+raw_movements = pd.DataFrame()
 
 if is_connected:
     try:
         with engine.connect() as conn:
-            df_products = pd.read_sql(text("SELECT * FROM products_master ORDER BY sku"), conn)
-            df_sales = pd.read_sql(text("SELECT * FROM sales_ledger"), conn)
-            df_movements = pd.read_sql(text("SELECT * FROM stock_movements ORDER BY id DESC LIMIT 30"), conn)
-    except Exception:
-        df_products = pd.DataFrame()
-        df_sales = pd.DataFrame()
-        df_movements = pd.DataFrame()
+            inspector = inspect(engine)
+            tables = inspector.get_table_names()
+            
+            # Fetch products
+            prod_target = next((t for t in tables if "product" in t.lower() or "item" in t.lower()), "products_master")
+            if prod_target in tables:
+                raw_products = pd.read_sql(text(f"SELECT * FROM {prod_target}"), conn)
+            
+            # Fetch sales ledger
+            sales_target = next((t for t in tables if "sale" in t.lower() or "order" in t.lower() or "txn" in t.lower()), "sales_ledger")
+            if sales_target in tables:
+                raw_sales = pd.read_sql(text(f"SELECT * FROM {sales_target} ORDER BY 1 DESC LIMIT 2000"), conn)
 
-forecast_df = run_analytics(df_sales, df_products)
-low_stock_items = forecast_df[forecast_df["Needs Restock"]] if not forecast_df.empty else pd.DataFrame()
-expiring_items = forecast_df[forecast_df["Shelf Life"] <= 7] if not forecast_df.empty else pd.DataFrame()
+            # Fetch stock audit
+            move_target = next((t for t in tables if "movement" in t.lower() or "audit" in t.lower()), "stock_movements")
+            if move_target in tables:
+                raw_movements = pd.read_sql(text(f"SELECT * FROM {move_target} ORDER BY 1 DESC LIMIT 100"), conn)
+    except Exception as e:
+        st.error(f"Data Fetch Error: {e}")
 
-# ==========================================
-# 5. Main Dashboard Header & KPI Strip
-# ==========================================
-header_col1, header_col2 = st.columns([3, 1])
-with header_col1:
-    st.markdown("""
-    <div style='display: flex; align-items: center; gap: 14px; margin-top: 4px;'>
-        <h1 style='margin: 0; font-size: 2.3rem; font-weight: 800; letter-spacing: -0.04em;'>⚡ inventro.ai</h1>
-        <div class='badge-live'><div class='pulse-dot'></div> AUTONOMOUS OS</div>
-    </div>
-    <p style='color: #94A3B8; font-size: 0.95rem; margin-top: 6px;'>
-        Direct production database connector (PostgreSQL | MySQL | SQL Server), real-time POS transaction processing, and autonomous PO dispatch.
-    </p>
-    """, unsafe_allow_html=True)
-with header_col2:
-    st.write("")
-    if st.button("🔄 Sync Database Feed", use_container_width=True, type="primary"):
-        st.cache_resource.clear()
-        st.rerun()
-
-# 4 KPI Cards
-c1, c2, c3, c4 = st.columns(4)
-with c1:
-    st.markdown(f"""
-    <div class='saas-card'>
-        <div class='metric-label'>Catalog SKUs</div>
-        <div class='metric-value'>{len(forecast_df)}</div>
-        <div class='metric-subtext'>Synchronized items</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with c2:
-    st.markdown(f"""
-    <div class='saas-card'>
-        <div class='metric-label'>Critical Restock</div>
-        <div class='metric-value' style='background: linear-gradient(135deg, #F87171, #EF4444); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'>{len(low_stock_items)}</div>
-        <div class='metric-subtext'>Breached ROP threshold</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with c3:
-    st.markdown(f"""
-    <div class='saas-card'>
-        <div class='metric-label'>Perishability Alert</div>
-        <div class='metric-value' style='background: linear-gradient(135deg, #FBBF24, #F59E0B); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'>{len(expiring_items)}</div>
-        <div class='metric-subtext'>Shelf life ≤ 7 days</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with c4:
-    st.markdown(f"""
-    <div class='saas-card'>
-        <div class='metric-label'>Live POS Transactions</div>
-        <div class='metric-value' style='background: linear-gradient(135deg, #34D399, #10B981); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'>{len(df_sales):,}</div>
-        <div class='metric-subtext'>Ledger entries captured</div>
-    </div>
-    """, unsafe_allow_html=True)
+# Reconcile schemas dynamically with AI Schema Agent
+df_products, prod_schema_map = resolve_schema_with_ai(raw_products, table_hint="products_master", gemini_api_key=gemini_key)
+df_sales, sales_schema_map = resolve_schema_with_ai(raw_sales, table_hint="sales_ledger", gemini_api_key=gemini_key)
 
 # ==========================================
-# 6. Navigation Tabs
+# STATISTICAL MACHINE LEARNING / ROP ENGINE
 # ==========================================
-tab_po, tab_inout, tab_matrix, tab_db_hub = st.tabs([
+def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.DataFrame:
+    if products_df.empty:
+        return pd.DataFrame()
+
+    matrix = products_df.copy()
+    
+    # Calculate rolling 14-day metrics from sales ledger
+    if not sales_df.empty and "sku" in sales_df.columns and "quantity_sold" in sales_df.columns:
+        # Group by SKU to calculate daily consumption velocity and variance
+        velocity_stats = sales_df.groupby("sku")["quantity_sold"].agg(
+            daily_velocity="mean",
+            daily_volatility=lambda x: x.std(ddof=1) if len(x) > 1 else 0.5
+        ).reset_index()
+        
+        matrix = matrix.merge(velocity_stats, on="sku", how="left")
+    else:
+        matrix["daily_velocity"] = 3.0
+        matrix["daily_volatility"] = 1.0
+
+    matrix["daily_velocity"] = matrix["daily_velocity"].fillna(2.0).clip(lower=0.1)
+    matrix["daily_volatility"] = matrix["daily_volatility"].fillna(0.8).clip(lower=0.1)
+    
+    # Statistical Learning Calculations (Z = 1.65 for 95% service level)
+    Z = 1.65
+    matrix["safety_stock"] = np.ceil(Z * matrix["daily_volatility"] * np.sqrt(matrix["lead_time"].astype(float))).astype(int)
+    matrix["rop"] = np.ceil((matrix["daily_velocity"] * matrix["lead_time"].astype(float)) + matrix["safety_stock"]).astype(int)
+    
+    # Health and Runway metrics
+    matrix["days_runway"] = np.round(matrix["stock"] / matrix["daily_velocity"], 1)
+    matrix["reorder_status"] = np.where(matrix["stock"] <= matrix["rop"], "RESTOCK NEEDED", "HEALTHY")
+    matrix["expiry_risk"] = np.where(matrix["expiry_days"] <= 7, "HIGH EXPIRY RISK", "STABLE")
+
+    # Suggested PO batch calculation with MOQ and Pack Size constraints
+    def calc_po(row):
+        if row["reorder_status"] == "RESTOCK NEEDED" or row["expiry_risk"] == "HIGH EXPIRY RISK":
+            deficit = max(0, (2 * row["rop"]) - row["stock"])
+            pack_mult = max(1, int(row.get("pack_size", 1)))
+            batch = math.ceil(deficit / pack_mult) * pack_mult
+            return max(int(row.get("moq", 10)), batch)
+        return 0
+
+    matrix["suggested_po_qty"] = matrix.apply(calc_po, axis=1)
+    return matrix
+
+analytics_df = compute_analytics(df_products, df_sales)
+
+# ==========================================
+# MAIN APPLICATION INTERFACE
+# ==========================================
+st.title("inventro.ai")
+st.caption("Autonomous Retail Operating System & Dynamic Reorder Optimization")
+
+tab_analytics, tab_pos, tab_dispatcher, tab_infra = st.tabs([
+    "📊 Catalog & Analytics Matrix",
+    "⚡ POS Transaction Scanner",
     "✉️ Autonomous PO Dispatcher",
-    "⚡ Barcode Terminal & Stock Flow",
-    "📊 Dynamic ROP Analytics Matrix",
     "🔌 Database Infrastructure Terminal"
 ])
 
-# TAB 1: Autonomous PO Dispatcher
-with tab_po:
-    if len(low_stock_items) == 0:
-        st.markdown("""
-        <div class='saas-card' style='text-align: center; padding: 40px;'>
-            <h3 style='color: #34D399; margin: 0;'>🎉 Inventory Reserves Optimal</h3>
-            <p style='color: #94A3B8; margin-top: 8px;'>All product stock levels remain above reorder thresholds, or catalog is empty. PO queues are clear.</p>
-        </div>
-        """, unsafe_allow_html=True)
+# ------------------------------------------
+# TAB 1: CATALOG & ANALYTICS MATRIX
+# ------------------------------------------
+with tab_analytics:
+    if analytics_df.empty:
+        st.info("No active catalog data detected. Connect a database or provision sample schemas in the Infrastructure tab.")
     else:
-        v_col1, v_col2 = st.columns([1.1, 0.9])
-        with v_col1:
-            st.markdown("#### 📦 Supplier Replenishment Queues")
-            selected_vendor = st.selectbox("Select Pending Supplier Queue:", list(low_stock_items["Vendor"].unique()))
-            vendor_data = low_stock_items[low_stock_items["Vendor"] == selected_vendor]
-            
-            prio_col, email_col = st.columns([1, 1])
-            with prio_col:
-                prio = st.selectbox("⚡ Fulfillment Tier:", ["Priority Express (24h)", "Standard Net-30 Delivery"])
-            with email_col:
-                target_email = st.text_input("📬 Vendor Recipient:", value=vendor_data["Vendor Email"].iloc[0] if not vendor_data.empty else "")
-                
-            st.markdown("**Staged Line Items:**")
-            st.dataframe(
-                vendor_data[["SKU", "Product", "Current Stock", "Reorder Point", "Suggested Order"]],
-                use_container_width=True,
-                hide_index=True
-            )
-
-        with v_col2:
-            st.markdown("#### ✉️ Autonomous PO Message Payload")
-            items_summary = "\n".join([
-                f"  • {r['Product']} ({r['SKU']}): {r['Suggested Order']} Units | Stock in DB: {r['Current Stock']} (ROP: {r['Reorder Point']})"
-                for _, r in vendor_data.iterrows()
-            ])
-            
-            po_body = f"""Dear {selected_vendor} Logistics Team,\n\nPlease process this inventory replenishment purchase order:\n\n{items_summary}\n\nFulfillment Tier: {prio}\nDestination: Receiving Dock Bay 4\nPayment Terms: Net-30\n\nGenerated autonomously by inventro.ai Enterprise OS"""
-            
-            edited_body = st.text_area("Live Message Body (Editable)", value=po_body, height=210)
-            
-            if st.button(f"🚀 Dispatch Live Email to {selected_vendor}", type="primary", use_container_width=True):
-                with st.spinner(f"Transmitting PO to {target_email} via SMTP..."):
-                    success, msg = send_real_email(
-                        sender_email=sender_email,
-                        sender_password=sender_password,
-                        receiver_email=target_email,
-                        subject=f"[{prio.upper()}] PURCHASE ORDER - inventro.ai ({selected_vendor})",
-                        body=edited_body,
-                        smtp_server=smtp_server,
-                        smtp_port=smtp_port
-                    )
-                    if success:
-                        st.success(f"✅ Purchase Order Dispatched to `{target_email}`!")
-                        trigger_cash_rain()
-                    else:
-                        st.error(f"❌ {msg}")
-
-# TAB 2: Barcode Terminal & Stock Flow
-with tab_inout:
-    if not is_connected:
-        st.warning("⚠️ Please establish an active database connection in the sidebar.")
-    else:
-        scan_col, manual_col = st.columns([1, 1])
+        # High Level KPI Cards
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        restock_count = len(analytics_df[analytics_df["reorder_status"] == "RESTOCK NEEDED"])
+        expiry_count = len(analytics_df[analytics_df["expiry_risk"] == "HIGH EXPIRY RISK"])
         
-        with scan_col:
-            st.markdown("#### 📷 Instant POS Barcode Scanner")
-            st.caption("Point USB barcode scanner here or type SKU and hit Enter to record real checkout scans.")
-            
-            barcode_input = st.text_input("Barcode Input Field", placeholder="e.g. SKU-PROD-001", label_visibility="collapsed")
-            if barcode_input:
-                scanned_sku = barcode_input.strip()
-                with engine.connect() as conn:
-                    prod_exists = conn.execute(text("SELECT name, category, stock FROM products_master WHERE sku = :sku"), {"sku": scanned_sku}).fetchone()
-                    if prod_exists:
-                        prod_name, prod_cat, curr_stock = prod_exists[0], prod_exists[1], prod_exists[2]
-                        if curr_stock > 0:
-                            conn.execute(
-                                text("UPDATE products_master SET stock = stock - 1 WHERE sku = :sku"),
-                                {"sku": scanned_sku}
-                            )
-                            conn.execute(
-                                text("INSERT INTO sales_ledger (transaction_date, sku, product_name, category, quantity_sold, is_weekend) VALUES (:dt, :sku, :name, :cat, 1, 0)"),
-                                {"dt": str(date.today()), "sku": scanned_sku, "name": prod_name, "cat": prod_cat}
-                            )
-                            conn.execute(
-                                text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'POS_SCAN', 1, 'Scanned at Checkout Register')"),
-                                {"ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "sku": scanned_sku}
-                            )
-                            conn.commit()
-                            st.success(f"⚡ Billed 1 unit of **{prod_name}** (`{scanned_sku}`). Remaining stock: {curr_stock - 1}")
-                            st.rerun()
-                        else:
-                            st.error(f"❌ '{prod_name}' is currently OUT OF STOCK.")
-                    else:
-                        st.error(f"❌ Barcode `{scanned_sku}` not found in database catalog.")
+        with kpi1:
+            st.metric("Total Monitored SKUs", len(analytics_df))
+        with kpi2:
+            st.metric("Restock Breaches (Stock ≤ ROP)", restock_count, delta=-restock_count if restock_count > 0 else 0, delta_color="inverse")
+        with kpi3:
+            st.metric("Critical Perishables (≤ 7 Days)", expiry_count, delta=-expiry_count if expiry_count > 0 else 0, delta_color="inverse")
+        with kpi4:
+            avg_runway = round(analytics_df["days_runway"].mean(), 1)
+            st.metric("Average Fleet Runway", f"{avg_runway} Days")
 
-            st.markdown("---")
-            st.markdown("#### 📝 Manual Inventory Adjustment")
-            sku_options = (df_products["sku"] + " - " + df_products["name"]).tolist() if not df_products.empty else []
-            if sku_options:
-                selected_sku_text = st.selectbox("Select Target SKU:", sku_options)
-                target_sku = selected_sku_text.split(" - ")[0] if selected_sku_text else ""
-                
-                move_type = st.radio("Movement Type:", ["STOCK_OUT (POS Sale / Checkout)", "STOCK_IN (Receiving)"], horizontal=True)
-                qty = st.number_input("Units Quantity:", min_value=1, max_value=500, value=10)
-                note = st.text_input("Audit Note:", value="", placeholder="e.g. Manual inventory intake")
-                
-                if st.button("💾 Commit Transaction to Database", type="secondary", use_container_width=True):
-                    delta = qty if move_type == "STOCK_IN (Receiving)" else -qty
-                    with engine.connect() as conn:
-                        conn.execute(
-                            text("UPDATE products_master SET stock = CASE WHEN stock + :delta < 0 THEN 0 ELSE stock + :delta END WHERE sku = :sku"),
-                            {"delta": delta, "sku": target_sku}
-                        )
-                        conn.execute(
-                            text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, :mtype, :qty, :notes)"),
-                            {"ts": str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")), "sku": target_sku, "mtype": move_type, "qty": qty, "notes": note}
-                        )
-                        conn.commit()
-                    st.success(f"✅ Database updated for {target_sku} ({delta:+d} units).")
-                    st.rerun()
-            else:
-                st.info("ℹ️ No items in `products_master` yet. Add products via the Database tab.")
+        st.markdown("#### **Dynamic ROP & Statistical Safety Stock Matrix**")
+        if prod_schema_map:
+            with st.expander("🤖 Dynamic AI Schema Mappings (Active)", expanded=False):
+                st.json(prod_schema_map)
 
-        with manual_col:
-            st.markdown("#### 📜 Live Movement Audit Log (`stock_movements`)")
-            st.dataframe(
-                df_movements,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "movement_timestamp": "Timestamp",
-                    "sku": "SKU",
-                    "movement_type": "Movement",
-                    "quantity": "Qty",
-                    "notes": "Reference / Notes"
-                }
-            )
-
-# TAB 3: Dynamic ROP Analytics Matrix
-with tab_matrix:
-    st.markdown("#### 📊 Dynamic Safety Stock & Reorder Point Matrix")
-    
-    if forecast_df.empty:
-        st.info("ℹ️ No catalog products available in the connected database.")
-    else:
-        cats = ["All"] + sorted(list(forecast_df["Category"].unique()))
-        selected_cat = st.selectbox("Filter Department:", cats)
-        filtered_df = forecast_df if selected_cat == "All" else forecast_df[forecast_df["Category"] == selected_cat]
-
+        display_cols = ["sku", "name", "category", "stock", "lead_time", "daily_velocity", "safety_stock", "rop", "days_runway", "reorder_status", "expiry_days", "suggested_po_qty", "vendor"]
+        available_display_cols = [c for c in display_cols if c in analytics_df.columns]
+        
         st.dataframe(
-            filtered_df[[
-                "SKU", "Product", "Category", "Current Stock", "Reorder Point", 
-                "Daily Velocity", "Stock Health", "Days Runway", "Status", "Suggested Order", "Vendor"
-            ]],
+            analytics_df[available_display_cols],
             use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Stock Health": st.column_config.ProgressColumn(
-                    "Stock Runway",
-                    help="Inventory level relative to Reorder Point buffer",
-                    format="%.2f",
-                    min_value=0.0,
-                    max_value=1.0,
-                ),
-                "Current Stock": st.column_config.NumberColumn("Stock", format="%d units"),
-                "Reorder Point": st.column_config.NumberColumn("ROP", format="%d units"),
-                "Daily Velocity": st.column_config.NumberColumn("Velocity", format="%.1f /day"),
-                "Days Runway": st.column_config.NumberColumn("Days Left", format="%.1f d"),
-                "Suggested Order": st.column_config.NumberColumn("PO Size", format="%d units"),
-            }
+            hide_index=True
         )
 
-# TAB 4: Database Infrastructure Hub
-with tab_db_hub:
-    st.subheader("🔌 Database Infrastructure Management")
-    if not is_connected:
-        st.error("⚠️ No database connection. Please enter your database credentials or URI in the sidebar.")
-    else:
-        col_d1, col_d2 = st.columns([1, 1])
-        with col_d1:
-            st.markdown("#### 📑 Detected Tables & Schemas")
-            st.write(detected_tables if len(detected_tables) > 0 else "No tables detected.")
-            if st.button("🛠️ Provision Missing Schemas", type="secondary"):
-                ok, msg = init_tables_safely(engine, db_target)
-                if ok:
-                    st.success(f"✅ {msg}")
-                    st.rerun()
-                else:
-                    st.error(f"❌ Error: {msg}")
-
-            st.markdown("---")
-            st.markdown("#### ➕ Add New SKU to Master Catalog")
-            with st.form("new_sku_form", clear_on_submit=True):
-                f_sku = st.text_input("SKU Code*", placeholder="e.g. SKU-COFFEE-01")
-                f_name = st.text_input("Product Name*", placeholder="e.g. Arabica Coffee Beans 500g")
-                f_cat = st.text_input("Category", value="", placeholder="e.g. Beverages")
-                f_stock = st.number_input("Initial Stock Units", min_value=0, value=0)
-                f_lead = st.number_input("Lead Time (Days)", min_value=1, value=2)
-                f_moq = st.number_input("Vendor MOQ", min_value=1, value=10)
-                f_pack = st.number_input("Pack Size", min_value=1, value=1)
-                f_vendor = st.text_input("Vendor Name", placeholder="e.g. Supplier Corp")
-                f_email = st.text_input("Vendor Email", placeholder="orders@supplier.com")
-                f_exp = st.number_input("Shelf Life Days", min_value=1, value=30)
-                
-                if st.form_submit_button("➕ Insert SKU into Database"):
-                    if f_sku and f_name:
-                        try:
-                            with engine.connect() as conn:
-                                conn.execute(text("""
-                                    INSERT INTO products_master (sku, name, category, lead_time, moq, pack_size, vendor, email, stock, expiry_days)
-                                    VALUES (:sku, :name, :cat, :lead, :moq, :pack, :vendor, :email, :stock, :exp)
-                                """), {
-                                    "sku": f_sku.strip(), "name": f_name.strip(), "cat": f_cat.strip() if f_cat else "General",
-                                    "lead": int(f_lead), "moq": int(f_moq), "pack": int(f_pack),
-                                    "vendor": f_vendor.strip(), "email": f_email.strip(), "stock": int(f_stock),
-                                    "exp": int(f_exp)
-                                })
-                                conn.commit()
-                            st.success(f"✅ SKU `{f_sku}` registered in database.")
-                            st.rerun()
-                        except Exception as insert_err:
-                            st.error(f"Insert failed: {insert_err}")
-                    else:
-                        st.error("SKU Code and Product Name are required.")
-                    
-        with col_d2:
-            st.markdown("#### 🔍 Direct SQL Query Terminal")
-            custom_sql = st.text_area("Execute Query on Active DB:", placeholder="SELECT * FROM products_master LIMIT 10;")
-            if st.button("⚡ Execute Query"):
-                if custom_sql and custom_sql.strip():
+# ------------------------------------------
+# TAB 2: POS TRANSACTION SCANNER
+# ------------------------------------------
+with tab_pos:
+    st.markdown("#### **Point of Sale Barcode Intake Terminal**")
+    st.caption("Live checkout decrementing directly synced to relational cloud storage.")
+    
+    pos_col1, pos_col2 = st.columns([1, 1.5])
+    
+    with pos_col1:
+        if not analytics_df.empty:
+            sku_options = analytics_df["sku"].tolist()
+            selected_sku = st.selectbox("Select Barcode / SKU Scan", sku_options)
+            sku_data = analytics_df[analytics_df["sku"] == selected_sku].iloc[0]
+            
+            scan_qty = st.number_input("Checkout Units", min_value=1, max_value=int(max(1, sku_data['stock'])), value=1)
+            
+            st.markdown(f"""
+            **Item:** `{sku_data['name']}`  
+            **Current Physical Stock:** `{sku_data['stock']} units`  
+            **Category:** `{sku_data['category']}`  
+            **Active ROP:** `{sku_data['rop']} units`  
+            """)
+            
+            if st.button("⚡ Execute POS Transaction", type="primary", use_container_width=True):
+                if is_connected:
                     try:
-                        with engine.connect() as conn:
-                            query_res = pd.read_sql(text(custom_sql), conn)
-                            st.dataframe(query_res, use_container_width=True)
-                    except Exception as e:
-                        st.error(f"SQL Error: {e}")
+                        with engine.begin() as conn:
+                            # 1. Decrement products stock
+                            sku_col = prod_schema_map.get("sku", "sku")
+                            stock_col = prod_schema_map.get("stock", "stock")
+                            conn.execute(
+                                text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku"),
+                                {"qty": scan_qty, "sku": selected_sku}
+                            )
+                            # 2. Append to sales ledger
+                            conn.execute(
+                                text("""
+                                INSERT INTO sales_ledger (transaction_date, sku, product_name, category, quantity_sold, is_weekend)
+                                VALUES (:tdate, :sku, :name, :cat, :qty, :wkd)
+                                """),
+                                {
+                                    "tdate": datetime.now(),
+                                    "sku": selected_sku,
+                                    "name": sku_data["name"],
+                                    "cat": sku_data["category"],
+                                    "qty": scan_qty,
+                                    "wkd": 1 if datetime.now().weekday() >= 5 else 0
+                                }
+                            )
+                            # 3. Log stock audit trail
+                            conn.execute(
+                                text("""
+                                INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes)
+                                VALUES (:ts, :sku, 'POS_SCAN', :qty, 'Live cashier terminal checkout')
+                                """),
+                                {"ts": datetime.now(), "sku": selected_sku, "qty": -scan_qty}
+                            )
+                        st.toast(f"✅ Deducted {scan_qty}x {sku_data['name']} from DB.", icon="🛒")
+                        st.rerun()
+                    except Exception as err:
+                        st.error(f"Transaction Execution Failed: {err}")
                 else:
-                    st.warning("Please enter a SQL statement.")
+                    st.error("No active database engine attached.")
+        else:
+            st.warning("No catalog data available to execute checkout transactions.")
+
+    with pos_col2:
+        st.markdown("**Live Stock Audit Ledger (`stock_movements`)**")
+        if not raw_movements.empty:
+            st.dataframe(raw_movements.head(10), use_container_width=True, hide_index=True)
+        else:
+            st.caption("No recent stock movement logs found.")
+
+# ------------------------------------------
+# TAB 3: AUTONOMOUS PO DISPATCHER
+# ------------------------------------------
+with tab_dispatcher:
+    st.markdown("#### **Autonomous Purchase Order Dispatch Center**")
+    st.caption("Prescriptive vendor order fulfillment with packaging constraints and direct SMTP relay.")
+    
+    if not analytics_df.empty:
+        po_candidates = analytics_df[analytics_df["suggested_po_qty"] > 0]
+        
+        if po_candidates.empty:
+            st.success("✨ All product lines are operating within optimal safety stock thresholds. Zero replenishments required.")
+        else:
+            st.warning(f"⚠️ {len(po_candidates)} product line(s) have breached safety thresholds and require immediate purchase orders.")
+            
+            selected_vendor = st.selectbox("Group Orders by Supplier", po_candidates["vendor"].unique())
+            vendor_orders = po_candidates[po_candidates["vendor"] == selected_vendor]
+            
+            default_email = vendor_orders["email"].iloc[0] if "email" in vendor_orders.columns and vendor_orders["email"].iloc[0] else "vendor-fulfillment@partner.com"
+            recipient_email = st.text_input("Supplier Dispatch Email", value=default_email)
+            
+            po_body_lines = []
+            po_body_lines.append(f"PURCHASE ORDER — INVENTRO.AI AUTONOMOUS REPLENISHMENT\n")
+            po_body_lines.append(f"Supplier: {selected_vendor}")
+            po_body_lines.append(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            po_body_lines.append("-" * 60)
+            po_body_lines.append(f"{'SKU':<12} | {'Item Name':<25} | {'Stock':<6} | {'ROP':<6} | {'Order Qty'}")
+            po_body_lines.append("-" * 60)
+            
+            for _, r in vendor_orders.iterrows():
+                po_body_lines.append(f"{r['sku']:<12} | {r['name'][:24]:<25} | {r['stock']:<6} | {r['rop']:<6} | {r['suggested_po_qty']} units")
+            po_body_lines.append("-" * 60)
+            po_body_lines.append("\nPlease acknowledge receipt and dispatch according to our standard SLA turnaround.")
+            
+            po_payload = "\n".join(po_body_lines)
+            st.text_area("Purchase Order Payload Preview", value=po_payload, height=220)
+            
+            if st.button(f"✉️ Dispatch Purchase Order to {selected_vendor}", type="primary"):
+                if not smtp_sender or not smtp_password:
+                    st.error("Please configure SMTP Sender Email and App Password in the sidebar.")
+                else:
+                    try:
+                        msg = MIMEMultipart()
+                        msg["From"] = smtp_sender
+                        msg["To"] = recipient_email
+                        msg["Subject"] = f"URGENT: Purchase Order Restock Request - {selected_vendor} [{datetime.now().strftime('%Y-%m-%d')}]"
+                        msg.attach(MIMEText(po_payload, "plain"))
+                        
+                        server = smtplib.SMTP(smtp_server, int(smtp_port))
+                        server.starttls()
+                        server.login(smtp_sender, smtp_password)
+                        server.send_message(msg)
+                        server.quit()
+                        
+                        st.success(f"🚀 Purchase Order successfully dispatched via TLS to {recipient_email}!")
+                    except Exception as mail_err:
+                        st.error(f"SMTP Transmission Failed: {mail_err}")
+    else:
+        st.info("Database not connected.")
+
+# ------------------------------------------
+# TAB 4: DATABASE INFRASTRUCTURE & TERMINAL
+# ------------------------------------------
+with tab_infra:
+    st.markdown("#### **Database Infrastructure & Schema Provisioner**")
+    
+    col_prov, col_sql = st.columns([1, 1.2])
+    
+    with col_prov:
+        st.markdown("**Schema Initialization**")
+        st.caption("Provisions missing `products_master`, `sales_ledger`, and `stock_movements` tables with seed data.")
+        
+        if st.button("🛠️ Provision Missing Schemas & Seed Data"):
+            if is_connected:
+                try:
+                    with engine.begin() as conn:
+                        # 1. Products Master
+                        conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS products_master (
+                            sku VARCHAR(50) PRIMARY KEY,
+                            name VARCHAR(150),
+                            category VARCHAR(50),
+                            stock INT DEFAULT 0,
+                            lead_time INT DEFAULT 2,
+                            moq INT DEFAULT 10,
+                            pack_size INT DEFAULT 1,
+                            vendor VARCHAR(100),
+                            email VARCHAR(100),
+                            expiry_days INT DEFAULT 30
+                        );
+                        """))
+                        
+                        # 2. Sales Ledger
+                        conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS sales_ledger (
+                            id SERIAL PRIMARY KEY,
+                            transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            sku VARCHAR(50),
+                            product_name VARCHAR(150),
+                            category VARCHAR(50),
+                            quantity_sold INT DEFAULT 1,
+                            is_weekend INT DEFAULT 0
+                        );
+                        """))
+
+                        # 3. Stock Audit movements
+                        conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS stock_movements (
+                            id SERIAL PRIMARY KEY,
+                            movement_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            sku VARCHAR(50),
+                            movement_type VARCHAR(50),
+                            quantity INT,
+                            notes VARCHAR(255)
+                        );
+                        """))
+                        
+                        # Seed baseline data if empty
+                        res = conn.execute(text("SELECT COUNT(*) FROM products_master")).scalar()
+                        if res == 0:
+                            conn.execute(text("""
+                            INSERT INTO products_master (sku, name, category, stock, lead_time, moq, pack_size, vendor, email, expiry_days) VALUES
+                            ('SKU-1001', 'Amul Pasteurized Milk 1L', 'Dairy', 12, 1, 20, 10, 'Amul Dairy Co', 'orders@amuldairy.com', 3),
+                            ('SKU-1002', 'Aashirvaad Whole Wheat Atta 5kg', 'Grains', 8, 3, 10, 5, 'ITC Foods Ltd', 'supply@itc.com', 90),
+                            ('SKU-1003', 'Tata Salt Iodized 1kg', 'Pantry', 35, 2, 25, 25, 'Tata Consumer Products', 'orders@tataconsumer.com', 180),
+                            ('SKU-1004', 'Cadbury Dairy Milk Silk 150g', 'Confectionery', 5, 2, 15, 10, 'Mondelez India', 'restock@mondelez.com', 45);
+                            """))
+                    st.success("✅ Database schemas successfully verified & provisioned.")
+                    st.rerun()
+                except Exception as p_err:
+                    st.error(f"Provisioning Failed: {p_err}")
+            else:
+                st.error("Connect to a database in the sidebar before provisioning.")
+
+    with col_sql:
+        st.markdown("**Direct SQL Query Terminal**")
+        custom_sql = st.text_area("Execute Query on Active DB:", placeholder="SELECT * FROM products_master LIMIT 10;")
+        if st.button("⚡ Execute Query"):
+            if custom_sql and custom_sql.strip() and is_connected:
+                try:
+                    with engine.connect() as conn:
+                        query_res = pd.read_sql(text(custom_sql), conn)
+                        st.dataframe(query_res, use_container_width=True)
+                except Exception as q_err:
+                    st.error(f"SQL Error: {q_err}")
+            else:
+                st.warning("Please provide an active query and verify connection.")
