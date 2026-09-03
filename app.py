@@ -3,6 +3,8 @@ import re
 import math
 import json
 import smtplib
+import sqlite3
+import hashlib
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -53,8 +55,147 @@ st.markdown("""
         line-height: 1.6;
         white-space: pre-wrap;
     }
+    .auth-container {
+        max-width: 480px;
+        margin: 40px auto;
+        padding: 30px;
+        background: rgba(15, 23, 42, 0.9);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        border-radius: 16px;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+# ==========================================
+# SQLITE AUTHENTICATION & CREDENTIAL VAULT
+# ==========================================
+VAULT_DB = "users_vault.db"
+
+def init_vault_db():
+    conn = sqlite3.connect(VAULT_DB)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            db_uri TEXT DEFAULT '',
+            groq_api_key TEXT DEFAULT '',
+            smtp_server TEXT DEFAULT '',
+            smtp_port INTEGER DEFAULT 587,
+            smtp_sender TEXT DEFAULT '',
+            smtp_password TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+init_vault_db()
+
+def hash_pw(password: str) -> str:
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
+def create_user_account(email: str, password: str) -> tuple[bool, str]:
+    try:
+        conn = sqlite3.connect(VAULT_DB)
+        c = conn.cursor()
+        c.execute("INSERT INTO users (email, password_hash) VALUES (?, ?)", (email.strip().lower(), hash_pw(password)))
+        conn.commit()
+        conn.close()
+        return True, "Account registered successfully!"
+    except sqlite3.IntegrityError:
+        return False, "An account with this email already exists."
+    except Exception as e:
+        return False, str(e)
+
+def verify_user(email: str, password: str):
+    conn = sqlite3.connect(VAULT_DB)
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, email, db_uri, groq_api_key, smtp_server, smtp_port, smtp_sender, smtp_password
+        FROM users WHERE email = ? AND password_hash = ?
+    """, (email.strip().lower(), hash_pw(password)))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {
+            "id": row[0],
+            "email": row[1],
+            "db_uri": row[2] or "",
+            "groq_api_key": row[3] or "",
+            "smtp_server": row[4] or "",
+            "smtp_port": row[5] or 587,
+            "smtp_sender": row[6] or "",
+            "smtp_password": row[7] or ""
+        }
+    return None
+
+def save_user_credentials(user_id: int, db_uri: str, groq_key: str, smtp_srv: str, smtp_prt: int, smtp_snd: str, smtp_pwd: str):
+    conn = sqlite3.connect(VAULT_DB)
+    c = conn.cursor()
+    c.execute("""
+        UPDATE users
+        SET db_uri = ?, groq_api_key = ?, smtp_server = ?, smtp_port = ?, smtp_sender = ?, smtp_password = ?
+        WHERE id = ?
+    """, (db_uri, groq_key, smtp_srv, smtp_prt, smtp_snd, smtp_pwd, user_id))
+    conn.commit()
+    conn.close()
+
+# ==========================================
+# AUTHENTICATION GATEWAY
+# ==========================================
+if "authenticated_user" not in st.session_state:
+    st.session_state.authenticated_user = None
+
+if not st.session_state.authenticated_user:
+    st.markdown("<h2 style='text-align: center;'>⚡ inventro.ai</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #94a3b8;'>Secure Retail OS & Inventory Intelligence Portal</p>", unsafe_allow_html=True)
+    
+    auth_col1, auth_col2, auth_col3 = st.columns([1, 1.2, 1])
+    with auth_col2:
+        auth_tab_login, auth_tab_signup = st.tabs(["🔐 Sign In", "📝 Create Account"])
+        
+        with auth_tab_login:
+            st.markdown("##### Access Stored Profile")
+            login_email = st.text_input("Email", key="login_email")
+            login_pass = st.text_input("Password", type="password", key="login_pass")
+            
+            if st.button("Log In to Workspace", type="primary", use_container_width=True):
+                if login_email and login_pass:
+                    user_data = verify_user(login_email, login_pass)
+                    if user_data:
+                        st.session_state.authenticated_user = user_data
+                        st.toast(f"Welcome back, {login_email}!", icon="👋")
+                        st.rerun()
+                    else:
+                        st.error("Invalid email or password.")
+                else:
+                    st.warning("Please fill in both email and password.")
+
+        with auth_tab_signup:
+            st.markdown("##### New Account Registration")
+            signup_email = st.text_input("Email", key="signup_email")
+            signup_pass = st.text_input("Password", type="password", key="signup_pass")
+            signup_pass2 = st.text_input("Confirm Password", type="password", key="signup_pass2")
+            
+            if st.button("Create ID & Vault", use_container_width=True):
+                if not signup_email or not signup_pass:
+                    st.warning("Please provide email and password.")
+                elif signup_pass != signup_pass2:
+                    st.error("Passwords do not match.")
+                elif len(signup_pass) < 6:
+                    st.error("Password must be at least 6 characters long.")
+                else:
+                    success, msg = create_user_account(signup_email, signup_pass)
+                    if success:
+                        st.success("Account created! Please switch to the Sign In tab to log in.")
+                    else:
+                        st.error(msg)
+    st.stop()
+
+# User is authenticated
+current_user = st.session_state.authenticated_user
 
 # ==========================================
 # DYNAMIC SCHEMA RESOLUTION ENGINE
@@ -135,48 +276,32 @@ def get_db_engine(connection_string: str):
         return None
 
 # ==========================================
-# SIDEBAR CONFIGURATION
+# SIDEBAR CONFIGURATION (AUTO-LOADED PROFILE)
 # ==========================================
 with st.sidebar:
+    st.markdown(f"👤 **{current_user['email']}**")
+    if st.button("🚪 Sign Out", use_container_width=True):
+        st.session_state.authenticated_user = None
+        st.rerun()
+
+    st.divider()
     st.markdown("### ⚡ **inventro.ai**")
     st.caption("Autonomous Retail Operating System")
     st.divider()
 
     st.markdown("**1. Database Configuration**")
-    connection_mode = st.radio("Mode:", ["Connection URL / URI", "Host & Credentials"], horizontal=True)
-
-    db_uri = ""
-    if connection_mode == "Connection URL / URI":
-        db_uri = st.text_input(
-            "Database Connection URL",
-            placeholder="postgresql://user:pass@host:5432/dbname?sslmode=require",
-            type="password"
-        )
-    else:
-        db_dialect = st.selectbox("Engine", ["PostgreSQL", "MySQL", "MS SQL Server", "SQLite"])
-        db_host = st.text_input("Host", placeholder="e.g. ep-xyz.aws.neon.tech")
-        db_port = st.text_input("Port", placeholder="5432")
-        db_name = st.text_input("Database Name", placeholder="dbname")
-        db_user = st.text_input("Username", placeholder="db_user")
-        db_pass = st.text_input("Password", placeholder="••••••••", type="password")
-
-        if db_host and db_name:
-            clean_dbname = db_name.split("?")[0].strip()
-            if db_dialect == "PostgreSQL":
-                db_uri = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port or '5432'}/{clean_dbname}?sslmode=require"
-            elif db_dialect == "MySQL":
-                db_uri = f"mysql+pymysql://{db_user}:{db_pass}@{db_host}:{db_port or '3306'}/{clean_dbname}"
-            elif db_dialect == "MS SQL Server":
-                db_uri = f"mssql+pyodbc://{db_user}:{db_pass}@{db_host}:{db_port or '1433'}/{clean_dbname}?driver=ODBC+Driver+17+for+SQL+Server"
-            else:
-                db_uri = f"sqlite:///{clean_dbname}.db"
+    db_uri_input = st.text_input(
+        "PostgreSQL / Neon Connection URL",
+        value=current_user["db_uri"],
+        placeholder="postgresql://user:pass@ep-xyz.aws.neon.tech/neondb?sslmode=require",
+        type="password"
+    )
 
     st.divider()
     st.markdown("**2. AI Engine (Groq / Llama 3.3)**")
-    default_key = os.environ.get("GROQ_API_KEY", "")
-    user_groq_key = st.text_input(
+    groq_key_input = st.text_input(
         "Groq API Key",
-        value=default_key,
+        value=current_user["groq_api_key"],
         placeholder="gsk_...",
         type="password",
         help="Get a free key from https://console.groq.com/keys"
@@ -184,14 +309,33 @@ with st.sidebar:
 
     st.divider()
     st.markdown("**3. SMTP Vendor Dispatcher**")
-    smtp_server = st.text_input("SMTP Server", placeholder="smtp.gmail.com")
-    smtp_port = st.number_input("SMTP Port", min_value=1, max_value=65535, value=587)
-    smtp_sender = st.text_input("Sender Email", placeholder="your-email@domain.com")
-    smtp_password = st.text_input("App Password", placeholder="••••••••", type="password")
+    smtp_server = st.text_input("SMTP Server", value=current_user["smtp_server"], placeholder="smtp.gmail.com")
+    smtp_port = st.number_input("SMTP Port", min_value=1, max_value=65535, value=int(current_user["smtp_port"] or 587))
+    smtp_sender = st.text_input("Sender Email", value=current_user["smtp_sender"], placeholder="your-email@domain.com")
+    smtp_password = st.text_input("App Password", value=current_user["smtp_password"], placeholder="••••••••", type="password")
+
+    st.divider()
+    if st.button("💾 Save Credentials to Profile", type="primary", use_container_width=True):
+        save_user_credentials(
+            current_user["id"],
+            db_uri_input,
+            groq_key_input,
+            smtp_server,
+            smtp_port,
+            smtp_sender,
+            smtp_password
+        )
+        current_user["db_uri"] = db_uri_input
+        current_user["groq_api_key"] = groq_key_input
+        current_user["smtp_server"] = smtp_server
+        current_user["smtp_port"] = smtp_port
+        current_user["smtp_sender"] = smtp_sender
+        current_user["smtp_password"] = smtp_password
+        st.toast("Credentials saved! They will auto-load whenever you log in.", icon="💾")
 
     sync_btn = st.button("🔄 Sync Database Feed", use_container_width=True)
 
-engine = get_db_engine(db_uri) if db_uri else None
+engine = get_db_engine(db_uri_input) if db_uri_input else None
 is_connected = engine is not None
 
 if is_connected:
@@ -274,13 +418,13 @@ analytics_df = compute_analytics(df_products, df_sales)
 # INTELLIGENT AI AGENT ENGINE (GROQ / LLAMA 3.3)
 # ==========================================
 def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, custom_key: str) -> str:
-    """Uses Groq's high-speed Llama 3.3 70B to understand and reason over live inventory data."""
+    """Uses Groq Llama 3.3 70B to understand and reason over live inventory data."""
     active_key = custom_key.strip() if custom_key else st.secrets.get("GROQ_API_KEY", os.environ.get("GROQ_API_KEY", ""))
 
     if not active_key:
         return (
             "🔑 **Groq API Key Required:**\n\n"
-            "Please paste your free Groq API key in the sidebar under **'2. AI Engine (Groq / Llama 3.3)'**.\n"
+            "Please paste your free Groq API key in the sidebar and click **'💾 Save Credentials to Profile'**.\n"
             "*Get a free key in 30 seconds at [console.groq.com/keys](https://console.groq.com/keys).*"
         )
 
@@ -304,7 +448,7 @@ CURRENT INVENTORY DATASET:
 {json.dumps(data_context, default=str)}
 
 GUIDELINES:
-1. Deeply understand the user's intent. Answer greetings, exact calculations, predictive scenarios, or inventory strategy questions.
+1. Deeply understand user intent. Answer natural greetings, exact mathematical lookups, scenarios, or vendor logistics.
 2. For stock levels, stockout risks, safety buffer math (Z=1.65), reorders, or expiry, calculate exact numbers from the dataset.
 3. Be concise, direct, and actionable. Use bullet points and bold formatting for clarity.
 """
@@ -326,7 +470,7 @@ GUIDELINES:
 # MAIN INTERFACE TABS
 # ==========================================
 st.title("inventro.ai")
-st.caption("Autonomous Retail Operating System & Dynamic Reorder Engine")
+st.caption(f"Autonomous Retail OS — Logged in as `{current_user['email']}`")
 
 tab_agent, tab_analytics, tab_pos, tab_dispatcher, tab_infra = st.tabs([
     "🤖 Autonomous AI Supply Agent",
@@ -401,7 +545,7 @@ with tab_agent:
 
             with st.chat_message("assistant"):
                 with st.spinner("Analyzing live inventory..."):
-                    ai_answer = intelligent_ai_agent(user_prompt, analytics_df, user_groq_key)
+                    ai_answer = intelligent_ai_agent(user_prompt, analytics_df, groq_key_input)
                     st.markdown(ai_answer)
             
             st.session_state.chat_messages.append({"role": "assistant", "content": ai_answer})
