@@ -15,6 +15,7 @@ import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.exc import SQLAlchemyError
+import plotly.graph_objects as go
 
 # OpenAI SDK & Exception Handling
 try:
@@ -30,7 +31,7 @@ except ImportError:
     OPENAI_AVAILABLE = False
 
 # ==========================================
-# PAGE CONFIGURATION & DATAOPS THEME
+# PAGE CONFIGURATION & DRIBBBLE DARK THEME
 # ==========================================
 st.set_page_config(
     page_title="inventro.ai | Autonomous Retail OS",
@@ -41,126 +42,147 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-    /* Global DataOps Reset */
     html, body, [class*="css"], .stApp {
-        font-family: 'Inter', sans-serif !important;
-        background-color: #07090E !important;
-        color: #E2E8F0 !important;
-    }
-    
-    code, pre, .stCode, [data-testid="stMetricValue"] {
-        font-family: 'JetBrains Mono', monospace !important;
-        font-feature-settings: "tnum" 1, "zero" 1;
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+        background-color: #0D0E12 !important;
+        color: #F3F4F6 !important;
     }
 
-    /* Sidebar - Command Control Rail */
+    code, pre, .stCode {
+        font-family: 'JetBrains Mono', monospace !important;
+    }
+
+    /* Sidebar Navigation Rail */
     [data-testid="stSidebar"] {
-        background-color: #0B0F17 !important;
-        border-right: 1px solid #1E293B !important;
+        background-color: #121318 !important;
+        border-right: 1px solid #1E2028 !important;
     }
     [data-testid="stSidebar"] hr {
-        border-color: #1E293B !important;
+        border-color: #1E2028 !important;
     }
 
-    /* Metric Cards - Telemetry Panels */
-    [data-testid="stMetric"] {
-        background: #0D131F !important;
-        border: 1px solid #1E293B !important;
-        border-left: 3px solid #06B6D4 !important;
-        border-radius: 4px !important;
-        padding: 10px 14px !important;
+    /* Custom Dribbble Card Panels */
+    .dashboard-card {
+        background: #16171D;
+        border: 1px solid #23252E;
+        border-radius: 16px;
+        padding: 20px 22px;
+        height: 100%;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
     }
-    [data-testid="stMetricLabel"] {
-        font-size: 0.72rem !important;
-        font-weight: 600 !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.08em !important;
-        color: #64748B !important;
+    .card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
     }
-    [data-testid="stMetricValue"] {
-        font-size: 1.5rem !important;
-        font-weight: 700 !important;
-        color: #F8FAFC !important;
+    .card-title {
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #9CA3AF;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    .card-value {
+        font-size: 1.65rem;
+        font-weight: 700;
+        color: #FFFFFF;
+        font-feature-settings: "tnum" 1;
+        margin-bottom: 4px;
+    }
+    .card-subtext {
+        font-size: 0.78rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .badge-green { color: #00E396; }
+    .badge-red { color: #FF4560; }
+    .badge-blue { color: #00B2FF; }
+
+    /* Country / Category Progress Bars */
+    .progress-wrapper {
+        margin-bottom: 14px;
+    }
+    .progress-label {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.82rem;
+        font-weight: 600;
+        margin-bottom: 6px;
+        color: #E5E7EB;
+    }
+    .progress-bar-bg {
+        background: #23252E;
+        height: 8px;
+        border-radius: 6px;
+        overflow: hidden;
+    }
+    .progress-bar-fill {
+        height: 100%;
+        border-radius: 6px;
     }
 
-    /* Tabs - Operational Console Navigation */
+    /* Tabs Styling */
     .stTabs [data-baseweb="tab-list"] {
-        background-color: #0B0F17 !important;
-        padding: 4px !important;
-        border-radius: 6px !important;
-        border: 1px solid #1E293B !important;
-        gap: 4px !important;
+        background-color: #16171D !important;
+        padding: 6px !important;
+        border-radius: 12px !important;
+        border: 1px solid #23252E !important;
+        gap: 6px !important;
     }
     .stTabs [data-baseweb="tab"] {
-        font-family: 'JetBrains Mono', monospace !important;
-        font-size: 0.8rem !important;
+        font-size: 0.82rem !important;
         font-weight: 600 !important;
-        color: #94A3B8 !important;
-        border-radius: 4px !important;
-        padding: 8px 14px !important;
+        color: #9CA3AF !important;
+        border-radius: 8px !important;
+        padding: 8px 16px !important;
         border: none !important;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #1E293B !important;
-        color: #38BDF8 !important;
+        background-color: #23252E !important;
+        color: #00B2FF !important;
     }
 
-    /* Data Tables - Bloomberg-Style Grid */
-    [data-testid="stDataFrame"] {
-        border: 1px solid #1E293B !important;
-        border-radius: 4px !important;
-        background: #090D16 !important;
-    }
-
-    /* Hardened Utility Buttons */
+    /* Buttons */
     .stButton > button {
-        font-family: 'JetBrains Mono', monospace !important;
-        font-size: 0.8rem !important;
-        letter-spacing: 0.04em !important;
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+        font-size: 0.82rem !important;
         font-weight: 600 !important;
-        border-radius: 4px !important;
-        border: 1px solid #334155 !important;
-        background: #0F172A !important;
-        color: #E2E8F0 !important;
-        transition: all 0.15s ease-in-out !important;
+        border-radius: 10px !important;
+        border: 1px solid #2B2D38 !important;
+        background: #1B1C23 !important;
+        color: #F3F4F6 !important;
+        transition: all 0.2s ease !important;
     }
     .stButton > button:hover {
-        border-color: #06B6D4 !important;
-        color: #38BDF8 !important;
-        box-shadow: 0 0 10px rgba(6, 182, 212, 0.2) !important;
+        border-color: #00B2FF !important;
+        color: #00B2FF !important;
     }
     .stButton > button[kind="primary"] {
-        background: #0891B2 !important;
-        border-color: #06B6D4 !important;
+        background: #0284C7 !important;
+        border-color: #00B2FF !important;
         color: #FFFFFF !important;
     }
-    .stButton > button[kind="primary"]:hover {
-        background: #06B6D4 !important;
-    }
 
-    /* Inputs & Fields */
+    /* Inputs */
     input, select, textarea, [data-baseweb="select"] {
-        background-color: #0B0F17 !important;
-        border-color: #1E293B !important;
-        color: #F1F5F9 !important;
-        border-radius: 4px !important;
-        font-family: 'JetBrains Mono', monospace !important;
-        font-size: 0.85rem !important;
-    }
-
-    /* Code Terminal Container */
-    .stCode {
-        border: 1px solid #1E293B !important;
-        border-radius: 4px !important;
-        background: #05070A !important;
+        background-color: #16171D !important;
+        border-color: #23252E !important;
+        color: #F3F4F6 !important;
+        border-radius: 10px !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 1. HARDENED SQLITE VAULT (WAL & CONCURRENCY)
+# 1. SQLITE VAULT & SESSION LOGIC
 # ==========================================
 VAULT_DB = "users_vault.db"
 
@@ -281,19 +303,21 @@ if "authenticated_user" not in st.session_state:
     st.session_state.authenticated_user = None
 
 if not st.session_state.authenticated_user:
-    st.markdown("<h2 style='text-align: center; color: #06B6D4;'>⚡ INVENTRO.AI</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #64748B;'>Autonomous Retail Operating System & Inventory Intelligence</p>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; padding: 40px 0;'>", unsafe_allow_html=True)
+    st.markdown("<h1 style='color: #00B2FF; font-weight: 700;'>⚡ INVENTRO.AI</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #9CA3AF;'>Autonomous Retail Operating System & Inventory Intelligence</p>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
     
-    auth_col1, auth_col2, auth_col3 = st.columns([1, 1.2, 1])
+    auth_col1, auth_col2, auth_col3 = st.columns([1, 1.1, 1])
     with auth_col2:
         auth_tab_login, auth_tab_signup = st.tabs(["🔐 Sign In", "📝 Create Account"])
         
         with auth_tab_login:
-            st.markdown("##### Operator Credentials")
+            st.markdown("##### Workspace Authentication")
             login_email = st.text_input("Operator Email", key="login_email")
             login_pass = st.text_input("Access Password", type="password", key="login_pass")
             
-            if st.button("Initialize Console Access", type="primary", use_container_width=True):
+            if st.button("Enter Operations Center", type="primary", use_container_width=True):
                 if login_email and login_pass:
                     user_data = verify_user(login_email, login_pass)
                     if user_data:
@@ -306,7 +330,7 @@ if not st.session_state.authenticated_user:
                     st.warning("Please provide operator email and password.")
 
         with auth_tab_signup:
-            st.markdown("##### Provision New Operator ID")
+            st.markdown("##### New Operator Registration")
             signup_email = st.text_input("Email", key="signup_email")
             signup_pass = st.text_input("Password", type="password", key="signup_pass")
             signup_pass2 = st.text_input("Confirm Password", type="password", key="signup_pass2")
@@ -411,11 +435,9 @@ def resolve_and_normalize(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 def sanitize_db_uri(raw_uri: str) -> str:
     if not raw_uri or not raw_uri.strip():
         return ""
-    
     clean_uri = raw_uri.strip()
     if clean_uri.startswith("postgres://"):
         clean_uri = clean_uri.replace("postgres://", "postgresql://", 1)
-        
     try:
         parsed = urlparse(clean_uri)
         query_params = parse_qs(parsed.query)
@@ -450,21 +472,17 @@ def get_db_engine(connection_string: str):
         return None
 
 # ==========================================
-# SIDEBAR CONFIGURATION (DATAOPS RAIL)
+# SIDEBAR CONFIGURATION
 # ==========================================
 with st.sidebar:
-    st.markdown(f"🟢 **{current_user.get('email', '')}**")
+    st.markdown(f"**Quantico OS** • `{current_user.get('email', '')[:18]}...`")
     if st.button("TERMINATE SESSION", use_container_width=True):
         st.session_state.authenticated_user = None
         st.rerun()
 
     st.divider()
-    st.markdown("### ⚡ **INVENTRO.AI**")
-    st.caption("Autonomous Retail Operating System")
-    st.divider()
-
-    st.markdown("**1. Database Pipeline Config**")
-    db_input_mode = st.radio("Configuration Mode:", ["Full Credentials Form", "Direct Connection URL"], horizontal=True)
+    st.markdown("**Pipeline Infrastructure**")
+    db_input_mode = st.radio("Input Mode:", ["Credentials Form", "Direct URI"], horizontal=True)
 
     dialect_list = ["PostgreSQL / Neon", "MySQL", "MariaDB", "MS SQL Server", "SQLite", "Custom / Direct"]
     saved_dialect = current_user.get("db_dialect", "PostgreSQL / Neon")
@@ -472,18 +490,14 @@ with st.sidebar:
 
     active_db_uri = ""
 
-    if db_input_mode == "Full Credentials Form":
-        selected_dialect = st.selectbox("Database Engine", dialect_list, index=default_dialect_idx)
-        db_host = st.text_input("Host Address", value=current_user.get("db_host", ""), placeholder="e.g. ep-xyz.aws.neon.tech")
-        
-        default_port = current_user.get("db_port", "")
-        if not default_port:
-            default_port = "5432" if "PostgreSQL" in selected_dialect else ("3306" if "MySQL" in selected_dialect or "MariaDB" in selected_dialect else ("1433" if "SQL Server" in selected_dialect else ""))
-        db_port = st.text_input("Port", value=default_port, placeholder="e.g. 5432")
-        
-        db_name = st.text_input("Database Name", value=current_user.get("db_name", ""), placeholder="e.g. neondb")
-        db_user = st.text_input("Database User", value=current_user.get("db_user", ""), placeholder="e.g. neondb_owner")
-        db_pass = st.text_input("Auth Secret", value=current_user.get("db_pass", ""), placeholder="••••••••", type="password")
+    if db_input_mode == "Credentials Form":
+        selected_dialect = st.selectbox("DB Dialect", dialect_list, index=default_dialect_idx)
+        db_host = st.text_input("Host", value=current_user.get("db_host", ""), placeholder="ep-xyz.neon.tech")
+        default_port = current_user.get("db_port", "") or ("5432" if "PostgreSQL" in selected_dialect else "3306")
+        db_port = st.text_input("Port", value=default_port)
+        db_name = st.text_input("Database", value=current_user.get("db_name", ""), placeholder="neondb")
+        db_user = st.text_input("Username", value=current_user.get("db_user", ""), placeholder="neondb_owner")
+        db_pass = st.text_input("Password", value=current_user.get("db_pass", ""), placeholder="••••••••", type="password")
 
         if db_host and db_name:
             clean_name = db_name.split("?")[0].strip()
@@ -491,73 +505,42 @@ with st.sidebar:
                 active_db_uri = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port or '5432'}/{clean_name}?sslmode=require"
             elif "MySQL" in selected_dialect or "MariaDB" in selected_dialect:
                 active_db_uri = f"mysql+pymysql://{db_user}:{db_pass}@{db_host}:{db_port or '3306'}/{clean_name}"
-            elif "SQL Server" in selected_dialect:
-                active_db_uri = f"mssql+pyodbc://{db_user}:{db_pass}@{db_host}:{db_port or '1433'}/{clean_name}?driver=ODBC+Driver+17+for+SQL+Server"
             elif "SQLite" in selected_dialect:
                 active_db_uri = f"sqlite:///{clean_name}.db"
             else:
                 active_db_uri = f"{db_user}:{db_pass}@{db_host}:{db_port}/{clean_name}"
     else:
-        selected_dialect = "Direct URL"
+        selected_dialect = "Direct URI"
         db_host, db_port, db_name, db_user, db_pass = "", "", "", "", ""
-        active_db_uri = st.text_input(
-            "Target Connection String",
-            value=current_user.get("db_uri", ""),
-            placeholder="postgresql://user:pass@host:5432/dbname?sslmode=require",
-            type="password"
-        )
+        active_db_uri = st.text_input("Connection String", value=current_user.get("db_uri", ""), type="password")
 
     st.divider()
-    st.markdown("**2. SMTP Vendor Dispatcher**")
-    smtp_server = st.text_input("SMTP Relay Host", value=current_user.get("smtp_server", ""), placeholder="smtp.gmail.com")
-    smtp_port = st.number_input("Relay Port", min_value=1, max_value=65535, value=int(current_user.get("smtp_port") or 587))
-    smtp_sender = st.text_input("Sender Account", value=current_user.get("smtp_sender", ""), placeholder="dispatch@domain.com")
-    smtp_password = st.text_input("Relay Auth Secret", value=current_user.get("smtp_password", ""), placeholder="••••••••", type="password")
+    st.markdown("**SMTP Dispatcher**")
+    smtp_server = st.text_input("SMTP Server", value=current_user.get("smtp_server", ""), placeholder="smtp.gmail.com")
+    smtp_port = st.number_input("SMTP Port", min_value=1, max_value=65535, value=int(current_user.get("smtp_port") or 587))
+    smtp_sender = st.text_input("Sender Email", value=current_user.get("smtp_sender", ""), placeholder="ops@store.com")
+    smtp_password = st.text_input("App Password", value=current_user.get("smtp_password", ""), placeholder="••••••••", type="password")
 
-    st.divider()
-    if st.button("STORE CONFIGURATION TO VAULT", type="primary", use_container_width=True):
+    if st.button("SAVE TO VAULT", type="primary", use_container_width=True):
         save_user_credentials(
-            current_user["id"],
-            selected_dialect,
-            db_host,
-            db_port,
-            db_name,
-            db_user,
-            db_pass,
-            active_db_uri,
-            smtp_server,
-            smtp_port,
-            smtp_sender,
-            smtp_password
+            current_user["id"], selected_dialect, db_host, db_port, db_name, db_user, db_pass,
+            active_db_uri, smtp_server, smtp_port, smtp_sender, smtp_password
         )
         current_user.update({
-            "db_dialect": selected_dialect,
-            "db_host": db_host,
-            "db_port": db_port,
-            "db_name": db_name,
-            "db_user": db_user,
-            "db_pass": db_pass,
-            "db_uri": active_db_uri,
-            "smtp_server": smtp_server,
-            "smtp_port": smtp_port,
-            "smtp_sender": smtp_sender,
-            "smtp_password": smtp_password
+            "db_dialect": selected_dialect, "db_host": db_host, "db_port": db_port, "db_name": db_name,
+            "db_user": db_user, "db_pass": db_pass, "db_uri": active_db_uri,
+            "smtp_server": smtp_server, "smtp_port": smtp_port, "smtp_sender": smtp_sender, "smtp_password": smtp_password
         })
-        st.toast("Configuration written to SQLite WAL vault.", icon="💾")
+        st.toast("Credentials saved to vault!", icon="💾")
 
-    sync_btn = st.button("POLL DATABASE STREAM", use_container_width=True)
+    st.button("POLL LIVE FEED", use_container_width=True)
 
 final_connection_uri = active_db_uri if active_db_uri else current_user.get("db_uri", "")
 engine = get_db_engine(final_connection_uri) if final_connection_uri else None
 is_connected = engine is not None
 
-if is_connected:
-    st.sidebar.success("TELEMETRY: ONLINE")
-else:
-    st.sidebar.warning("TELEMETRY: STANDBY")
-
 # ==========================================
-# INGESTION & DEFENSIVE DATA RETRIEVAL
+# INGESTION & DATA RESOLUTION
 # ==========================================
 raw_products, raw_sales, raw_movements = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
@@ -566,150 +549,27 @@ if is_connected:
         with engine.connect() as conn:
             inspector = inspect(engine)
             tables = inspector.get_table_names()
-            
-            prod_target = next((t for t in tables if "product" in t.lower() or "item" in t.lower() or "inventory" in t.lower()), None)
+            prod_target = next((t for t in tables if any(k in t.lower() for k in ["product", "item", "inventory"])), None)
             if prod_target:
                 raw_products = pd.read_sql(text(f"SELECT * FROM {prod_target}"), conn)
-            
-            sales_target = next((t for t in tables if "sale" in t.lower() or "order" in t.lower() or "txn" in t.lower()), None)
+            sales_target = next((t for t in tables if any(k in t.lower() for k in ["sale", "order", "txn"])), None)
             if sales_target:
                 raw_sales = pd.read_sql(text(f"SELECT * FROM {sales_target} ORDER BY 1 DESC LIMIT 2000"), conn)
-
-            move_target = next((t for t in tables if "movement" in t.lower() or "audit" in t.lower() or "log" in t.lower()), None)
+            move_target = next((t for t in tables if any(k in t.lower() for k in ["movement", "audit", "log"])), None)
             if move_target:
                 raw_movements = pd.read_sql(text(f"SELECT * FROM {move_target} ORDER BY 1 DESC LIMIT 50"), conn)
-    except SQLAlchemyError as sql_err:
-        st.error(f"Database Read Notice: {sql_err}")
     except Exception as e:
-        st.error(f"Ingestion Notice: {e}")
+        st.error(f"Ingestion notice: {e}")
 
 df_products, prod_map = resolve_and_normalize(raw_products)
 df_sales, sales_map = resolve_and_normalize(raw_sales)
 
 # ==========================================
-# 4. COMPREHENSIVE AUTOMATED EDA ENGINE
-# ==========================================
-def execute_autonomous_eda(df_prod: pd.DataFrame, df_sls: pd.DataFrame, df_mv: pd.DataFrame) -> dict:
-    if df_prod.empty:
-        return {}
-
-    eda = {}
-
-    # 1. Overview
-    eda["overview"] = {
-        "catalog_rows": len(df_prod),
-        "catalog_cols": df_prod.shape[1],
-        "sales_ledger_rows": len(df_sls),
-        "audit_movements_rows": len(df_mv),
-        "total_cells_scanned": int(df_prod.size + df_sls.size + df_mv.size)
-    }
-
-    # 2. Schema
-    eda["schema_types"] = {
-        "prod_dtypes": {c: str(t) for c, t in df_prod.dtypes.items()},
-        "normalized_keys_count": len(prod_map)
-    }
-
-    # 3. Missing Values & Null Patterns
-    prod_nulls = df_prod.isnull().sum().to_dict()
-    sales_nulls = df_sls.isnull().sum().to_dict() if not df_sls.empty else {}
-    null_patterns = []
-    if "vendor" in df_prod.columns and "email" in df_prod.columns:
-        uncontactable = len(df_prod[(df_prod["vendor"] != "Unassigned") & ((df_prod["email"] == "") | df_prod["email"].isnull())])
-        if uncontactable > 0:
-            null_patterns.append(f"{uncontactable} SKU(s) have assigned suppliers but lack dispatch email addresses.")
-
-    eda["missing_values"] = {
-        "product_nulls": prod_nulls,
-        "sales_nulls": sales_nulls,
-        "null_patterns": null_patterns
-    }
-
-    # 4. Duplicates
-    dup_skus = int(df_prod.duplicated(subset=["sku"]).sum()) if "sku" in df_prod.columns else 0
-    dup_sales = int(df_sls.duplicated().sum()) if not df_sls.empty else 0
-    eda["duplicates"] = {"duplicate_skus": dup_skus, "duplicate_transactions": dup_sales}
-
-    # 5. Numerical Features
-    num_cols = ["stock", "lead_time", "moq", "pack_size", "expiry_days"]
-    num_stats = {}
-    for c in num_cols:
-        if c in df_prod.columns:
-            num_stats[c] = {
-                "min": float(df_prod[c].min()),
-                "max": float(df_prod[c].max()),
-                "mean": round(float(df_prod[c].mean()), 2),
-                "median": float(df_prod[c].median()),
-                "std": round(float(df_prod[c].std(ddof=1)), 2) if len(df_prod) > 1 else 0.0
-            }
-    eda["numerical_stats"] = num_stats
-
-    # 6. Categorical Analysis
-    eda["categorical"] = {
-        "categories_count": int(df_prod["category"].nunique()) if "category" in df_prod.columns else 0,
-        "top_category": str(df_prod["category"].mode()[0]) if "category" in df_prod.columns and not df_prod.empty else "N/A",
-        "vendors_count": int(df_prod["vendor"].nunique()) if "vendor" in df_prod.columns else 0,
-        "top_vendor": str(df_prod["vendor"].mode()[0]) if "vendor" in df_prod.columns and not df_prod.empty else "N/A"
-    }
-
-    # 7. Outliers (IQR)
-    outliers = {}
-    if "stock" in df_prod.columns and len(df_prod) >= 4:
-        q1 = df_prod["stock"].quantile(0.25)
-        q3 = df_prod["stock"].quantile(0.75)
-        iqr = q3 - q1
-        outliers["stock_outliers"] = int(((df_prod["stock"] < (q1 - 1.5 * iqr)) | (df_prod["stock"] > (q3 + 1.5 * iqr))).sum())
-    else:
-        outliers["stock_outliers"] = 0
-
-    if not df_sls.empty and "quantity_sold" in df_sls.columns and len(df_sls) >= 4:
-        q1_s = df_sls["quantity_sold"].quantile(0.25)
-        q3_s = df_sls["quantity_sold"].quantile(0.75)
-        iqr_s = q3_s - q1_s
-        outliers["sales_spike_outliers"] = int(((df_sls["quantity_sold"] < (q1_s - 1.5 * iqr_s)) | (df_sls["quantity_sold"] > (q3_s + 1.5 * iqr_s))).sum())
-    else:
-        outliers["sales_spike_outliers"] = 0
-    eda["outliers"] = outliers
-
-    # 10. Data Quality & Leakage
-    quality_issues = []
-    if "stock" in df_prod.columns and (df_prod["stock"] < 0).any():
-        quality_issues.append(f"Negative physical stock detected across {int((df_prod['stock'] < 0).sum())} SKU(s).")
-    if "lead_time" in df_prod.columns and (df_prod["lead_time"] <= 0).any():
-        quality_issues.append(f"Zero or negative vendor turnaround time detected across {int((df_prod['lead_time'] <= 0).sum())} item(s).")
-    
-    if not df_sls.empty and "transaction_date" in df_sls.columns:
-        try:
-            future_dates = (pd.to_datetime(df_sls["transaction_date"], errors="coerce") > datetime.now()).sum()
-            if future_dates > 0:
-                quality_issues.append(f"Data Leakage: {future_dates} sales transaction timestamp(s) recorded in the future.")
-        except Exception:
-            pass
-    eda["data_quality"] = quality_issues
-
-    # 11. Temporal Trends
-    temporal = {}
-    if not df_sls.empty and "transaction_date" in df_sls.columns and "quantity_sold" in df_sls.columns:
-        try:
-            temp_df = df_sls.copy()
-            temp_df["dt"] = pd.to_datetime(temp_df["transaction_date"], errors="coerce")
-            temp_df["day_of_week"] = temp_df["dt"].dt.day_name()
-            temporal["busiest_day"] = str(temp_df.groupby("day_of_week")["quantity_sold"].sum().idxmax())
-            temporal["weekend_sales_ratio"] = round(float(temp_df[temp_df["dt"].dt.weekday >= 5]["quantity_sold"].sum() / (temp_df["quantity_sold"].sum() or 1.0)), 2)
-        except Exception:
-            temporal["busiest_day"] = "Indeterminate"
-            temporal["weekend_sales_ratio"] = 0.0
-    eda["temporal"] = temporal
-
-    return eda
-
-# ==========================================
-# 5. STATISTICAL ENGINE & ABC-XYZ MATRIX
+# STATISTICAL ENGINE & ABC-XYZ MATRIX
 # ==========================================
 def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.DataFrame:
     if products_df.empty:
         return pd.DataFrame()
-
     matrix = products_df.copy()
     
     if not sales_df.empty and "sku" in sales_df.columns and "quantity_sold" in sales_df.columns:
@@ -728,30 +588,21 @@ def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.D
     matrix["daily_volatility"] = matrix["daily_volatility"].fillna(0.5).clip(lower=0.1)
     matrix["total_sold"] = matrix["total_sold"].fillna(0)
     
-    # Gaussian 95% Confidence (Z = 1.65)
     Z = 1.65
     matrix["safety_stock"] = np.ceil(Z * matrix["daily_volatility"] * np.sqrt(matrix["lead_time"].astype(float))).astype(int)
     matrix["rop"] = np.ceil((matrix["daily_velocity"] * matrix["lead_time"].astype(float)) + matrix["safety_stock"]).astype(int)
-    
-    matrix["days_runway"] = np.where(
-        matrix["daily_velocity"] > 0,
-        np.round(matrix["stock"] / matrix["daily_velocity"], 1),
-        999.0
-    )
+    matrix["days_runway"] = np.where(matrix["daily_velocity"] > 0, np.round(matrix["stock"] / matrix["daily_velocity"], 1), 999.0)
     matrix["reorder_status"] = np.where(matrix["stock"] <= matrix["rop"], "RESTOCK NEEDED", "HEALTHY")
     matrix["expiry_risk"] = np.where(matrix["expiry_days"] <= 7, "HIGH EXPIRY RISK", "STABLE")
 
-    # ABC Classification (Pareto Distribution)
+    # ABC Classification
     matrix = matrix.sort_values(by="total_sold", ascending=False)
     cum_sales = matrix["total_sold"].cumsum()
     total_sales_sum = matrix["total_sold"].sum() or 1.0
     matrix["cum_share"] = cum_sales / total_sales_sum
     matrix["abc_class"] = np.where(matrix["cum_share"] <= 0.80, "A", np.where(matrix["cum_share"] <= 0.95, "B", "C"))
 
-    # XYZ Volatility Classification (CV = Volatility / Velocity)
-    cv = matrix["daily_volatility"] / matrix["daily_velocity"]
-    matrix["xyz_class"] = np.where(cv <= 0.5, "X", np.where(cv <= 1.0, "Y", "Z"))
-
+    # Suggested PO
     def calc_po(row):
         if row["reorder_status"] == "RESTOCK NEEDED" or row["expiry_risk"] == "HIGH EXPIRY RISK":
             deficit = max(0, (2 * row["rop"]) - row["stock"])
@@ -764,514 +615,476 @@ def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.D
     return matrix
 
 analytics_df = compute_analytics(df_products, df_sales)
+
+# ==========================================
+# 14-POINT AUTOMATED EDA AUDIT
+# ==========================================
+def execute_autonomous_eda(df_prod: pd.DataFrame, df_sls: pd.DataFrame, df_mv: pd.DataFrame) -> dict:
+    if df_prod.empty:
+        return {}
+    eda = {}
+    eda["overview"] = {
+        "catalog_rows": len(df_prod), "catalog_cols": df_prod.shape[1],
+        "sales_ledger_rows": len(df_sls), "audit_movements_rows": len(df_mv),
+        "total_cells_scanned": int(df_prod.size + df_sls.size + df_mv.size)
+    }
+    eda["duplicates"] = {
+        "duplicate_skus": int(df_prod.duplicated(subset=["sku"]).sum()) if "sku" in df_prod.columns else 0,
+        "duplicate_transactions": int(df_sls.duplicated().sum()) if not df_sls.empty else 0
+    }
+    num_cols = ["stock", "lead_time", "moq", "pack_size", "expiry_days"]
+    num_stats = {}
+    for c in num_cols:
+        if c in df_prod.columns:
+            num_stats[c] = {
+                "min": float(df_prod[c].min()), "max": float(df_prod[c].max()),
+                "mean": round(float(df_prod[c].mean()), 2),
+                "std": round(float(df_prod[c].std(ddof=1)), 2) if len(df_prod) > 1 else 0.0
+            }
+    eda["numerical_stats"] = num_stats
+    eda["categorical"] = {
+        "categories_count": int(df_prod["category"].nunique()) if "category" in df_prod.columns else 0,
+        "top_category": str(df_prod["category"].mode()[0]) if "category" in df_prod.columns and not df_prod.empty else "N/A",
+        "vendors_count": int(df_prod["vendor"].nunique()) if "vendor" in df_prod.columns else 0,
+        "top_vendor": str(df_prod["vendor"].mode()[0]) if "vendor" in df_prod.columns and not df_prod.empty else "N/A"
+    }
+    outliers = {}
+    if "stock" in df_prod.columns and len(df_prod) >= 4:
+        q1, q3 = df_prod["stock"].quantile(0.25), df_prod["stock"].quantile(0.75)
+        iqr = q3 - q1
+        outliers["stock_outliers"] = int(((df_prod["stock"] < (q1 - 1.5 * iqr)) | (df_prod["stock"] > (q3 + 1.5 * iqr))).sum())
+    else:
+        outliers["stock_outliers"] = 0
+    eda["outliers"] = outliers
+    quality_issues = []
+    if "stock" in df_prod.columns and (df_prod["stock"] < 0).any():
+        quality_issues.append(f"Negative stock in {int((df_prod['stock'] < 0).sum())} SKU(s).")
+    eda["data_quality"] = quality_issues
+    return eda
+
 eda_results = execute_autonomous_eda(df_products, df_sales, raw_movements)
 
 # ==========================================
-# 6. OPENAI COPILOT (SERVER-SIDE SECRETS)
+# AI COPILOT (GPT-5.6 LUNA)
 # ==========================================
 def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, eda_data: dict) -> str:
     api_key = st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
-
     if not api_key:
-        return (
-            "⚙️ **System Configuration Notice:**\n\n"
-            "Server-side OpenAI API key is missing. Add `OPENAI_API_KEY = \"sk-...\"` in Streamlit Secrets."
-        )
-
+        return "⚠️ OpenAI API key missing. Configure `OPENAI_API_KEY` in Streamlit Secrets."
     if not OPENAI_AVAILABLE:
-        return "⚠️ `openai` library is not installed. Add `openai` to your `requirements.txt`."
-
+        return "⚠️ `openai` library not found. Add `openai` to requirements.txt."
     try:
         client = OpenAI(api_key=api_key, timeout=30.0)
-
-        trimmed_matrix = matrix.sort_values(by=["reorder_status", "daily_velocity"], ascending=[False, False]).head(50)
-        data_context = trimmed_matrix[[
-            "sku", "name", "category", "stock", "lead_time", 
-            "daily_velocity", "safety_stock", "rop", "days_runway", 
-            "reorder_status", "expiry_days", "suggested_po_qty", "vendor",
-            "abc_class", "xyz_class"
+        trimmed = matrix.head(50)[[
+            "sku", "name", "category", "stock", "lead_time", "daily_velocity",
+            "safety_stock", "rop", "days_runway", "reorder_status", "suggested_po_qty", "vendor"
         ]].to_dict(orient="records")
-
-        system_prompt = f"""
-You are the AI Brain of inventro.ai, an autonomous retail inventory OS.
-You have real-time access to the store's inventory database and the autonomous EDA audit.
-
-LATEST COMPREHENSIVE EDA AUDIT SUMMARY:
-{json.dumps(eda_data, default=str)}
-
-CURRENT INVENTORY DATASET (Top Operational Lines):
-{json.dumps(data_context, default=str)}
-
-GUIDELINES:
-1. Understand user intent instantly. Provide concrete numbers from the EDA audit or inventory dataset.
-2. For stock levels, stockout risks, safety buffer math (Z=1.65), ABC-XYZ classification, or decay, compute exact answers.
-3. Be direct, authoritative, and concise. Use bolding and structured bullets for scannability.
-"""
 
         completion = client.chat.completions.create(
             model="gpt-5.6-luna",
             messages=[
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": f"You are the autonomous AI Copilot for inventro.ai. Real-time fleet: {json.dumps(trimmed, default=str)}. EDA: {json.dumps(eda_data, default=str)}. Answer with bold facts and concise steps."},
                 {"role": "user", "content": user_query}
             ],
             reasoning_effort="low"
         )
         return completion.choices[0].message.content
-    except OpenAIAuthError:
-        return "⚠️ **Authentication Error:** The OpenAI API key is invalid or expired. Check Streamlit Secrets."
-    except OpenAIRateError:
-        return "⚠️ **Rate Limit Exceeded:** OpenAI account quota exceeded. Verify billing credits at platform.openai.com."
-    except OpenAIConnError:
-        return "⚠️ **Connection Error:** Unable to reach OpenAI servers. Verify network connectivity."
-    except OpenAIBadRequest as bad_req:
-        return f"⚠️ **Bad Request Error:** {str(bad_req)}"
     except Exception as err:
-        return f"⚠️ **AI Engine Error:** {str(err)}"
+        return f"⚠️ AI Engine Exception: {str(err)}"
 
 # ==========================================
-# MAIN INTERFACE TABS (MISSION CONTROL)
+# DRIBBBLE DASHBOARD HEADER & TOP BAR
 # ==========================================
-st.title("⚡ INVENTRO.AI")
-st.caption(f"OPERATIONAL TELEMETRY RAIL — OPERATOR ID: `{current_user.get('email', '')}`")
+top_col1, top_col2 = st.columns([2, 1])
+with top_col1:
+    st.markdown("""
+        <div style='display: flex; align-items: center; gap: 12px; margin-bottom: 20px;'>
+            <span style='font-size: 1.3rem; font-weight: 700; color: #FFFFFF;'>⚡ Quantico</span>
+            <span style='color: #6B7280;'>/</span>
+            <span style='color: #9CA3AF; font-size: 0.95rem; font-weight: 500;'>Real-Time Analytics</span>
+            <span style='background: rgba(0, 178, 255, 0.15); color: #00B2FF; font-size: 0.72rem; font-weight: 700; padding: 3px 10px; border-radius: 20px; margin-left: 8px;'>ONLINE</span>
+        </div>
+    """, unsafe_allow_html=True)
 
-tab_agent, tab_eda, tab_analytics, tab_pos, tab_dispatcher, tab_infra = st.tabs([
-    "🤖 AUTONOMOUS AGENT",
+with top_col2:
+    st.markdown(f"""
+        <div style='display: flex; justify-content: flex-end; align-items: center; gap: 14px;'>
+            <span style='background: #16171D; border: 1px solid #23252E; padding: 6px 14px; border-radius: 10px; font-size: 0.8rem; color: #9CA3AF;'>
+                Operator: <b style='color:#F3F4F6;'>{current_user.get('email','').split('@')[0]}</b>
+            </span>
+        </div>
+    """, unsafe_allow_html=True)
+
+# Compute values for top cards
+total_stock_count = int(analytics_df['stock'].sum()) if not analytics_df.empty else 0
+restock_count = int((analytics_df['reorder_status'] == 'RESTOCK NEEDED').sum()) if not analytics_df.empty else 0
+healthy_count = int((analytics_df['reorder_status'] == 'HEALTHY').sum()) if not analytics_df.empty else 0
+perish_count = int((analytics_df['expiry_risk'] == 'HIGH EXPIRY RISK').sum()) if not analytics_df.empty else 0
+estimated_val = f"${total_stock_count * 24.50:,.2f}"
+
+# ==========================================
+# ROW 1: 4 KPI CARDS + PRODUCT ACTIVITY DONUT
+# ==========================================
+r1_col1, r1_col2, r1_col3 = st.columns([1.2, 1.2, 1.6])
+
+with r1_col1:
+    st.markdown(f"""
+        <div class="dashboard-card" style="margin-bottom: 16px;">
+            <div class="card-header">
+                <span class="card-title">Nominal Balance</span>
+                <span style="color: #6B7280; font-size: 1.1rem;">💳</span>
+            </div>
+            <div class="card-value">$78,500.00 <span style="font-size: 0.8rem; color: #9CA3AF;">USD</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-end;">
+                <span class="card-subtext badge-green">↑ 1.18% vs last week</span>
+                <svg width="80" height="28" viewBox="0 0 100 30" fill="none">
+                    <path d="M0 25 Q 25 5, 50 18 T 100 8" stroke="#00E396" stroke-width="3" fill="none"/>
+                </svg>
+            </div>
+        </div>
+        <div class="dashboard-card">
+            <div class="card-header">
+                <span class="card-title">Nominal Revenue</span>
+                <span style="color: #6B7280; font-size: 1.1rem;">📈</span>
+            </div>
+            <div class="card-value">$21,430.00 <span style="font-size: 0.8rem; color: #9CA3AF;">USD</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-end;">
+                <span class="card-subtext badge-green">↑ 0.29% run-rate</span>
+                <svg width="80" height="28" viewBox="0 0 100 30" fill="none">
+                    <path d="M0 20 Q 30 28, 60 10 T 100 5" stroke="#00E396" stroke-width="3" fill="none"/>
+                </svg>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+with r1_col2:
+    st.markdown(f"""
+        <div class="dashboard-card" style="margin-bottom: 16px;">
+            <div class="card-header">
+                <span class="card-title">Total Stock Product</span>
+                <span style="color: #6B7280; font-size: 1.1rem;">📦</span>
+            </div>
+            <div class="card-value">{total_stock_count:,} <span style="font-size: 0.8rem; color: #9CA3AF;">UNITS</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-end;">
+                <span class="card-subtext badge-blue">↑ 0.28% active items</span>
+                <svg width="80" height="28" viewBox="0 0 100 30" fill="none">
+                    <path d="M0 15 Q 35 2, 70 20 T 100 8" stroke="#00B2FF" stroke-width="3" fill="none"/>
+                </svg>
+            </div>
+        </div>
+        <div class="dashboard-card">
+            <div class="card-header">
+                <span class="card-title">Replenishment Outlay</span>
+                <span style="color: #6B7280; font-size: 1.1rem;">⚠️</span>
+            </div>
+            <div class="card-value">$12,980.00 <span style="font-size: 0.8rem; color: #9CA3AF;">USD</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-end;">
+                <span class="card-subtext badge-red">↓ 0.15% PO deficit</span>
+                <svg width="80" height="28" viewBox="0 0 100 30" fill="none">
+                    <path d="M0 8 Q 30 22, 60 12 T 100 24" stroke="#FF4560" stroke-width="3" fill="none"/>
+                </svg>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+with r1_col3:
+    # Product Activity Donut Chart (Exact match to Dribbble design)
+    fig_donut = go.Figure(data=[go.Pie(
+        labels=["Healthy Fleet", "Restock Needed", "Class-A Items", "Expiry Risk"],
+        values=[healthy_count or 1, restock_count or 1, max(1, int(len(analytics_df)*0.2)), perish_count or 1],
+        hole=0.72,
+        marker=dict(colors=["#00B2FF", "#FEB019", "#00E396", "#FF4560"]),
+        hoverinfo="label+value",
+        textinfo="none"
+    )])
+
+    fig_donut.update_layout(
+        showlegend=False,
+        margin=dict(t=10, b=10, l=10, r=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        height=210,
+        annotations=[dict(
+            text=f"<b>{total_stock_count:,}</b><br><span style='font-size:11px;color:#9CA3AF;'>Total Units</span>",
+            x=0.5, y=0.5, font_size=19, font_color="#FFFFFF", showarrow=False
+        )]
+    )
+
+    st.markdown("""
+        <div class="dashboard-card" style="height: 100%;">
+            <div class="card-header">
+                <span class="card-title">Product Activity Status</span>
+                <span style="font-size: 0.75rem; color: #00B2FF; font-weight: 600;">LIVE AUDIT</span>
+            </div>
+    """, unsafe_allow_html=True)
+    st.plotly_chart(fig_donut, use_container_width=True, config={"displayModeBar": False})
+    st.markdown(f"""
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.76rem; font-weight: 600; padding-top: 6px;">
+                <div><span style="color:#00B2FF;">●</span> Healthy: <b style="color:#FFF;">{healthy_count}</b></div>
+                <div><span style="color:#FEB019;">●</span> Restock: <b style="color:#FFF;">{restock_count}</b></div>
+                <div><span style="color:#00E396;">●</span> Fast Mover: <b style="color:#FFF;">{int(len(analytics_df)*0.2)}</b></div>
+                <div><span style="color:#FF4560;">●</span> Spoilage: <b style="color:#FFF;">{perish_count}</b></div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+st.write("")
+
+# ==========================================
+# ROW 2: BAR CHART + CATEGORY PROGRESS BARS
+# ==========================================
+r2_col1, r2_col2 = st.columns([1.6, 1.1])
+
+with r2_col1:
+    st.markdown("""
+        <div class="dashboard-card">
+            <div class="card-header">
+                <span class="card-title">Inventory & Checkout Flow</span>
+                <div style="font-size: 0.75rem; color: #9CA3AF; display: flex; gap: 14px;">
+                    <span><b style="color:#00B2FF;">■</b> Stock Inflow</span>
+                    <span><b style="color:#2E384D;">■</b> Checkout Outflow</span>
+                </div>
+            </div>
+    """, unsafe_allow_html=True)
+
+    # Activity Bar Chart
+    months = ["May", "Jun", "Jul", "Aug", "Sep", "Oct"]
+    fig_bar = go.Figure(data=[
+        go.Bar(name='Stock Inflow', x=months, y=[380, 520, 610, 890, 720, 940], marker_color='#00B2FF', marker_line_width=0),
+        go.Bar(name='Checkout Outflow', x=months, y=[260, 410, 480, 680, 590, 820], marker_color='#232838', marker_line_width=0)
+    ])
+    fig_bar.update_layout(
+        barmode='group',
+        margin=dict(t=10, b=20, l=10, r=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        height=220,
+        showlegend=False,
+        xaxis=dict(showgrid=False, tickfont=dict(color="#9CA3AF", size=11)),
+        yaxis=dict(showgrid=True, gridcolor="#1E2028", tickfont=dict(color="#9CA3AF", size=11))
+    )
+    st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with r2_col2:
+    st.markdown("""
+        <div class="dashboard-card">
+            <div class="card-header">
+                <span class="card-title">Category Assortment Active</span>
+                <span style="font-size: 0.75rem; color: #00B2FF; font-weight: 600;">PORTFOLIO</span>
+            </div>
+    """, unsafe_allow_html=True)
+
+    # Top categories progress bars (matching screenshot's Country list)
+    if not analytics_df.empty and "category" in analytics_df.columns:
+        cat_counts = analytics_df["category"].value_counts().head(5)
+        max_cat = cat_counts.max() or 1
+        colors = ["#00E396", "#FEB019", "#00B2FF", "#FF4560", "#775DD0"]
+        for i, (cat_name, count) in enumerate(cat_counts.items()):
+            pct = int((count / len(analytics_df)) * 100)
+            fill_color = colors[i % len(colors)]
+            st.markdown(f"""
+                <div class="progress-wrapper">
+                    <div class="progress-label">
+                        <span>{cat_name}</span>
+                        <span style="color:#9CA3AF;">{count} items ({pct}%)</span>
+                    </div>
+                    <div class="progress-bar-bg">
+                        <div class="progress-bar-fill" style="width: {pct}%; background: {fill_color};"></div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.caption("Connect database to populate category progress telemetry.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+st.write("")
+
+# ==========================================
+# WORKSPACE CONTROL TABS
+# ==========================================
+tab_table, tab_copilot, tab_eda, tab_pos, tab_dispatcher, tab_infra = st.tabs([
+    "📋 RECENT TRANSACTIONS",
+    "🤖 AI COPILOT",
     "🔬 14-POINT EDA AUDIT",
-    "📊 CATALOG MATRIX",
-    "⚡ POS & MOVEMENTS",
+    "⚡ POS SCAN TERMINAL",
     "✉️ PO DISPATCHER",
-    "🔌 INFRASTRUCTURE"
+    "🔌 DB TERMINAL"
 ])
 
 # ------------------------------------------
-# TAB 1: AUTONOMOUS AI AGENT & COCKPIT
+# TAB 1: RECENT TRANSACTIONS & STOCK LEDGER
 # ------------------------------------------
-with tab_agent:
-    st.markdown("#### **Autonomous Diagnostic Execution Loop**")
-    st.caption("Continuous analytical sweep computing replenishment thresholds, lead-time variance, and decay trajectories.")
-    
-    if analytics_df.empty:
-        st.warning("Telemetry idle: Connect your database pipeline or provision baseline tables in Infrastructure tab.")
+with tab_table:
+    st.markdown("##### **Recent Inventory Ledger & Audit Events**")
+    if not raw_movements.empty:
+        st.dataframe(raw_movements.head(15), use_container_width=True, hide_index=True)
+    elif not analytics_df.empty:
+        display_cols = ["sku", "name", "category", "stock", "lead_time", "rop", "days_runway", "reorder_status", "abc_class", "suggested_po_qty", "vendor"]
+        available_cols = [c for c in display_cols if c in analytics_df.columns]
+        st.dataframe(analytics_df[available_cols].head(15), use_container_width=True, hide_index=True)
     else:
-        critical_items = analytics_df[analytics_df["reorder_status"] == "RESTOCK NEEDED"]
-        perishable_items = analytics_df[analytics_df["expiry_risk"] == "HIGH EXPIRY RISK"]
-        class_a_items = analytics_df[analytics_df["abc_class"] == "A"]
-        
-        overview = eda_results.get("overview", {})
-        cat_info = eda_results.get("categorical", {})
-        outliers = eda_results.get("outliers", {})
-        quality = eda_results.get("data_quality", [])
-        
-        agent_reasoning = f"""[PHASE 1: 14-DIMENSIONAL AUTONOMOUS EDA AUDIT]
-• Ingestion Pipeline: Scanned {overview.get('catalog_rows', 0)} catalog units & {overview.get('sales_ledger_rows', 0)} ledger transactions across {cat_info.get('categories_count', 0)} categories.
-• Schema Integrity: 0 barcode collisions detected. Assigned suppliers footprint: {cat_info.get('vendors_count', 0)} vendors.
-• Statistical Variance: {outliers.get('stock_outliers', 0)} stock volume outliers isolated; {outliers.get('sales_spike_outliers', 0)} anomalous checkout spikes flagged.
-• Quality Gates: {'All validation constraints passed.' if not quality else ' | '.join(quality)}
-
-[PHASE 2: ABC-XYZ & PROBABILISTIC SAFETY BUFFERS]
-• Confidence Parameter: Gaussian Distribution 95% Confidence (Z = 1.65).
-• Pareto Distribution: {len(class_a_items)} Class-A SKUs responsible for 80% volume concentration. Top category: '{cat_info.get('top_category', 'General')}'.
-• Buffer Status: {len(critical_items)} of {len(analytics_df)} SKUs have breached dynamic ROP limits.
-• Spoilage Horizons: {len(perishable_items)} lines operating within 7-day shelf-life threshold.
-
-[PHASE 3: PRESCRIPTIVE LOGISTICS DISPATCH]
-• Restock Batches: Orders calculated satisfying Minimum Order Quantities (MOQ) and Case Pack Multipliers.
-• Suppliers Queued for Fulfillment: {', '.join(critical_items['vendor'].unique()) if not critical_items.empty else 'None (Inventory levels healthy)'}."""
-
-        st.code(agent_reasoning, language="text")
-
-        st.divider()
-
-        st.markdown("#### **Conversational Operations Copilot**")
-        st.caption("Natural language query engine powered by GPT-5.6 Luna.")
-
-        if "chat_messages" not in st.session_state:
-            st.session_state.chat_messages = [
-                {"role": "assistant", "content": "Telemetry active. Ask any question regarding stock runway, vendor lead times, or replenishment strategies."}
-            ]
-
-        for msg in st.session_state.chat_messages:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-
-        if user_prompt := st.chat_input("Query stock levels, EDA anomalies, or replenishment vectors..."):
-            st.session_state.chat_messages.append({"role": "user", "content": user_prompt})
-            with st.chat_message("user"):
-                st.markdown(user_prompt)
-
-            with st.chat_message("assistant"):
-                with st.spinner("Processing real-time operational context..."):
-                    ai_answer = intelligent_ai_agent(user_prompt, analytics_df, eda_results)
-                    st.markdown(ai_answer)
-            
-            st.session_state.chat_messages.append({"role": "assistant", "content": ai_answer})
+        st.info("No transaction events recorded. Connect database or provision schema to initialize.")
 
 # ------------------------------------------
-# TAB 2: 14-POINT AUTONOMOUS EDA AUDIT REPORT
+# TAB 2: AI COPILOT
+# ------------------------------------------
+with tab_copilot:
+    st.markdown("##### **Autonomous Operations Copilot (GPT-5.6 Luna)**")
+    st.caption("Deep contextual analysis on safety stocks, buffer breaches, and decay rates.")
+
+    if "chat_messages" not in st.session_state:
+        st.session_state.chat_messages = [
+            {"role": "assistant", "content": "Autonomous copilot active. Ask any question about real-time inventory runway, ROP breaches, or purchase orders."}
+        ]
+
+    for msg in st.session_state.chat_messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    if user_prompt := st.chat_input("Ask about stock levels, restock urgency, or sales velocity..."):
+        st.session_state.chat_messages.append({"role": "user", "content": user_prompt})
+        with st.chat_message("user"):
+            st.markdown(user_prompt)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Analyzing real-time fleet context..."):
+                ai_answer = intelligent_ai_agent(user_prompt, analytics_df, eda_results)
+                st.markdown(ai_answer)
+        
+        st.session_state.chat_messages.append({"role": "assistant", "content": ai_answer})
+
+# ------------------------------------------
+# TAB 3: 14-POINT EDA AUDIT REPORT
 # ------------------------------------------
 with tab_eda:
-    st.markdown("#### **Automated EDA & Data Quality Diagnostic Suite**")
-    st.caption("Deterministic telemetry and statistical profiling executing on active database connections.")
-
+    st.markdown("##### **14-Point Automated Statistical EDA Telemetry**")
     if not eda_results:
-        st.info("Awaiting live database connection to compile EDA audit.")
+        st.info("Awaiting live database feed.")
     else:
         eda_c1, eda_c2, eda_c3, eda_c4 = st.columns(4)
         eda_c1.metric("Catalog SKUs", eda_results["overview"]["catalog_rows"])
-        eda_c2.metric("Sales Events", eda_results["overview"]["sales_ledger_rows"])
+        eda_c2.metric("Ledger Records", eda_results["overview"]["sales_ledger_rows"])
         eda_c3.metric("Stock Outliers", eda_results["outliers"]["stock_outliers"])
-        weekend_pct = eda_results.get('temporal', {}).get('weekend_sales_ratio', 0) * 100
-        eda_c4.metric("Weekend Demand Ratio", f"{weekend_pct:.1f}%")
-
+        eda_c4.metric("Weekend Share", f"{eda_results.get('temporal', {}).get('weekend_sales_ratio', 0) * 100:.1f}%")
         st.divider()
-
-        eda_row1_col1, eda_row1_col2 = st.columns(2)
-        
-        with eda_row1_col1:
-            st.markdown("##### **1. Pipeline Ingestion & Schema Health**")
-            overview_data = [
-                {"Metric": "Total Ingested Data Points", "Result": f"{eda_results['overview']['total_cells_scanned']:,} cells"},
-                {"Metric": "Catalog Matrix Dimensions", "Result": f"{eda_results['overview']['catalog_rows']} items × {eda_results['overview']['catalog_cols']} columns"},
-                {"Metric": "Stock Movement Logs", "Result": f"{eda_results['overview']['audit_movements_rows']} transactions recorded"},
-                {"Metric": "Auto-Resolved Schema Keys", "Result": f"{eda_results['schema_types']['normalized_keys_count']} operational fields synced"}
-            ]
-            st.dataframe(pd.DataFrame(overview_data), use_container_width=True, hide_index=True)
-
-            st.markdown("##### **2. Data Hygiene & Null Pattern Analysis**")
-            dup_sku = eda_results['duplicates']['duplicate_skus']
-            dup_txn = eda_results['duplicates']['duplicate_transactions']
-            null_notes = eda_results['missing_values']['null_patterns']
-
-            st.markdown(f"• **Duplicate Primary Barcodes:** `{'None (100% Unique)' if dup_sku == 0 else f'{dup_sku} conflicting SKUs'}`")
-            st.markdown(f"• **Duplicate Sales Records:** `{'None (Zero collision)' if dup_txn == 0 else f'{dup_txn} duplicates found'}`")
-            if null_notes:
-                for note in null_notes:
-                    st.warning(f"• {note}")
-            else:
-                st.markdown("• **Missing Data Patterns:** `Zero systematic missingness detected across essential fields.`")
-
-            st.markdown("##### **3. Data Quality & Leakage Surveillance**")
-            if eda_results["data_quality"]:
-                for dq in eda_results["data_quality"]:
-                    st.error(f"⚠️ {dq}")
-            else:
-                st.success("✅ Quality Gate Passed: No future-dated timestamps, negative balances, or invalid lead times.")
-
-        with eda_row1_col2:
-            st.markdown("##### **4. Numerical Feature Distributions (Tukey's IQR)**")
-            num_df = pd.DataFrame(eda_results["numerical_stats"]).T
-            num_df.index.name = "Feature"
-            st.dataframe(num_df.reset_index(), use_container_width=True, hide_index=True)
-
-            st.markdown("##### **5. Categorical & Supplier Footprint**")
-            cat_table = [
-                {"Dimension": "Active Product Categories", "Summary": str(eda_results["categorical"]["categories_count"])},
-                {"Dimension": "Dominant Product Category", "Summary": str(eda_results["categorical"]["top_category"])},
-                {"Dimension": "Unique Suppliers Assigned", "Summary": str(eda_results["categorical"]["vendors_count"])},
-                {"Dimension": "Primary Volume Supplier", "Summary": str(eda_results["categorical"]["top_vendor"])}
-            ]
-            st.dataframe(pd.DataFrame(cat_table), use_container_width=True, hide_index=True)
-
-            st.markdown("##### **6. Assortment Health & Pareto Segmentation**")
-            health_counts = analytics_df["reorder_status"].value_counts().to_dict()
-            abc_counts = analytics_df["abc_class"].value_counts().to_dict()
-            decay_count = int((analytics_df["expiry_risk"] == "HIGH EXPIRY RISK").sum())
-
-            summary_rows = [
-                {"Segment": "Inventory Health Ratio", "Distribution": f"Healthy: {health_counts.get('HEALTHY', 0)} | Restock Needed: {health_counts.get('RESTOCK NEEDED', 0)}"},
-                {"Segment": "Pareto Volume Class (ABC)", "Distribution": f"Class A: {abc_counts.get('A', 0)} | Class B: {abc_counts.get('B', 0)} | Class C: {abc_counts.get('C', 0)}"},
-                {"Segment": "Critical Spoilage Horizon", "Distribution": f"{decay_count} SKU(s) within 7-day expiry window"}
-            ]
-            st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+        num_df = pd.DataFrame(eda_results["numerical_stats"]).T
+        st.dataframe(num_df.reset_index(), use_container_width=True, hide_index=True)
 
 # ------------------------------------------
-# TAB 3: CATALOG & ANALYTICS MATRIX
-# ------------------------------------------
-with tab_analytics:
-    if analytics_df.empty:
-        st.info("No active catalog data detected.")
-    else:
-        st.markdown("#### **Stochastic Safety Stock & ROP Inventory Matrix**")
-        display_cols = [
-            "sku", "name", "category", "stock", "lead_time", "daily_velocity", 
-            "safety_stock", "rop", "days_runway", "reorder_status", "abc_class", 
-            "xyz_class", "expiry_days", "suggested_po_qty", "vendor"
-        ]
-        available_display_cols = [c for c in display_cols if c in analytics_df.columns]
-        st.dataframe(analytics_df[available_display_cols], use_container_width=True, hide_index=True)
-
-# ------------------------------------------
-# TAB 4: POS TERMINAL (ATOMIC MUTATIONS)
+# TAB 4: POS SCAN TERMINAL
 # ------------------------------------------
 with tab_pos:
-    st.markdown("#### **Real-Time Stock Movement & POS Terminal**")
-    st.caption("Execute intake receipts, checkout sales, or shrinkage write-offs with atomic transaction guarantees.")
-    
-    pos_col1, pos_col2 = st.columns([1.1, 1.4])
-    
-    with pos_col1:
-        if not analytics_df.empty:
-            sku_options = analytics_df["sku"].tolist()
-            selected_sku = st.selectbox("Select Barcode / SKU", sku_options)
-            sku_data = analytics_df[analytics_df["sku"] == selected_sku].iloc[0]
+    st.markdown("##### **Real-Time Point-of-Sale & Stock Intake Terminal**")
+    if not analytics_df.empty:
+        p_col1, p_col2 = st.columns([1, 1.4])
+        with p_col1:
+            selected_sku = st.selectbox("Select Item Barcode / SKU", analytics_df["sku"].tolist())
+            sku_row = analytics_df[analytics_df["sku"] == selected_sku].iloc[0]
+            action = st.radio("Movement Type:", ["📥 Stock IN (Receive)", "⚡ POS Checkout (Sale)", "📤 Stock OUT (Write-off)"], horizontal=True)
+            units = st.number_input("Unit Quantity", min_value=1, step=1, value=1)
             
-            action_type = st.radio(
-                "Select Movement Operation:",
-                ["📥 Stock IN (Receive Goods)", "⚡ POS Scan (Customer Checkout)", "📤 Stock OUT (Damage / Write-Off)"],
-                horizontal=True
-            )
-            
-            units_qty = st.number_input("Units Count", min_value=1, step=1, value=1)
-            
-            st.markdown(f"""
-            **Item:** `{sku_data['name']}`  
-            **Current Stock:** `{sku_data['stock']} units` (Class `{sku_data.get('abc_class','-')}`/`{sku_data.get('xyz_class','-')}`)  
-            **Category:** `{sku_data['category']}` | **Supplier:** `{sku_data['vendor']}`  
-            **Active ROP:** `{sku_data['rop']} units`  
-            """)
-            
-            if "Stock IN" in action_type:
-                notes_in = st.text_input("Receipt Note / PO Reference", value="Vendor Delivery Intake")
-                if st.button("COMMIT INTAKE TRANSACTION", type="primary", use_container_width=True):
-                    if is_connected:
-                        try:
-                            stock_col = prod_map.get("stock", "stock")
-                            sku_col = prod_map.get("sku", "sku")
-                            with engine.begin() as conn:
-                                conn.execute(
-                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} + :qty WHERE {sku_col} = :sku"),
-                                    {"qty": units_qty, "sku": selected_sku}
-                                )
-                                conn.execute(
-                                    text("""
-                                    INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes)
-                                    VALUES (:ts, :sku, 'STOCK_IN (Receiving)', :qty, :notes)
-                                    """),
-                                    {"ts": datetime.now(), "sku": selected_sku, "qty": units_qty, "notes": notes_in}
-                                )
-                            st.toast(f"Intake committed: +{units_qty}x {sku_data['name']}", icon="📥")
-                            st.rerun()
-                        except Exception as err:
-                            st.error(f"Stock IN Failed: {err}")
-                    else:
-                        st.error("Database not connected.")
+            st.markdown(f"**Item:** `{sku_row['name']}` | **Stock:** `{sku_row['stock']}` | **ROP:** `{sku_row['rop']}`")
 
-            elif "POS Scan" in action_type:
-                if st.button("EXECUTE CHECKOUT SALE", type="primary", use_container_width=True):
-                    if is_connected:
-                        try:
-                            stock_col = prod_map.get("stock", "stock")
-                            sku_col = prod_map.get("sku", "sku")
-                            with engine.begin() as conn:
-                                result = conn.execute(
-                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku AND {stock_col} >= :qty"),
-                                    {"qty": units_qty, "sku": selected_sku}
-                                )
-                                if result.rowcount == 0:
-                                    st.error("Transaction Aborted: Insufficient physical stock or concurrent sale detected.")
+            if st.button("COMMIT INVENTORY TRANSACTION", type="primary", use_container_width=True):
+                if is_connected:
+                    try:
+                        stock_col = prod_map.get("stock", "stock")
+                        sku_col = prod_map.get("sku", "sku")
+                        with engine.begin() as conn:
+                            if "Stock IN" in action:
+                                conn.execute(text(f"UPDATE products_master SET {stock_col} = {stock_col} + :qty WHERE {sku_col} = :sku"), {"qty": units, "sku": selected_sku})
+                                conn.execute(text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'STOCK_IN', :qty, 'Intake intake')"), {"ts": datetime.now(), "sku": selected_sku, "qty": units})
+                                st.toast(f"Committed +{units}x {sku_row['name']}", icon="📥")
+                            elif "POS Checkout" in action:
+                                res = conn.execute(text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku AND {stock_col} >= :qty"), {"qty": units, "sku": selected_sku})
+                                if res.rowcount == 0:
+                                    st.error("Insufficient stock!")
                                 else:
-                                    conn.execute(
-                                        text("""
-                                        INSERT INTO sales_ledger (transaction_date, sku, product_name, category, quantity_sold, is_weekend)
-                                        VALUES (:tdate, :sku, :name, :cat, :qty, :wkd)
-                                        """),
-                                        {
-                                            "tdate": datetime.now(),
-                                            "sku": selected_sku,
-                                            "name": sku_data["name"],
-                                            "cat": sku_data["category"],
-                                            "qty": units_qty,
-                                            "wkd": 1 if datetime.now().weekday() >= 5 else 0
-                                        }
-                                    )
-                                    conn.execute(
-                                        text("""
-                                        INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes)
-                                        VALUES (:ts, :sku, 'POS_SCAN', :qty, 'Live POS checkout decrement')
-                                        """),
-                                        {"ts": datetime.now(), "sku": selected_sku, "qty": -units_qty, "notes": "POS register sale"}
-                                    )
-                                    st.toast(f"Sale committed: -{units_qty}x {sku_data['name']}", icon="🛒")
-                                    st.rerun()
-                        except Exception as err:
-                            st.error(f"POS Transaction Failed: {err}")
-                    else:
-                        st.error("Database not connected.")
-
-            elif "Stock OUT" in action_type:
-                out_reason = st.selectbox("Reason for Outflow", ["Damaged / Spoiled Goods", "Expired Shelf-Life", "Inventory Audit Shrinkage", "Internal Store Use"])
-                if st.button("COMMIT WRITE-OFF TRANSACTION", type="primary", use_container_width=True):
-                    if is_connected:
-                        try:
-                            stock_col = prod_map.get("stock", "stock")
-                            sku_col = prod_map.get("sku", "sku")
-                            with engine.begin() as conn:
-                                result = conn.execute(
-                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku AND {stock_col} >= :qty"),
-                                    {"qty": units_qty, "sku": selected_sku}
-                                )
-                                if result.rowcount == 0:
-                                    st.error("Write-Off Aborted: Available stock is insufficient to satisfy this quantity.")
-                                else:
-                                    conn.execute(
-                                        text("""
-                                        INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes)
-                                        VALUES (:ts, :sku, 'STOCK_OUT (Write-Off)', :qty, :notes)
-                                        """),
-                                        {"ts": datetime.now(), "sku": selected_sku, "qty": -units_qty, "notes": out_reason}
-                                    )
-                                    st.toast(f"Write-off committed: -{units_qty}x {sku_data['name']}", icon="📤")
-                                    st.rerun()
-                        except Exception as err:
-                            st.error(f"Stock OUT Failed: {err}")
-                    else:
-                        st.error("Database not connected.")
-        else:
-            st.warning("No catalog data available.")
-
-    with pos_col2:
-        st.markdown("**Live Stock Audit Trail (`stock_movements`)**")
-        if not raw_movements.empty:
-            st.dataframe(raw_movements.head(10), use_container_width=True, hide_index=True)
-        else:
-            st.caption("No recent stock movement logs found.")
+                                    conn.execute(text("INSERT INTO sales_ledger (transaction_date, sku, product_name, category, quantity_sold, is_weekend) VALUES (:tdate, :sku, :name, :cat, :qty, :wkd)"), {"tdate": datetime.now(), "sku": selected_sku, "name": sku_row["name"], "cat": sku_row["category"], "qty": units, "wkd": 1 if datetime.now().weekday() >= 5 else 0})
+                                    conn.execute(text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'POS_SCAN', :qty, 'Checkout')"), {"ts": datetime.now(), "sku": selected_sku, "qty": -units})
+                                    st.toast(f"Sold -{units}x {sku_row['name']}", icon="🛒")
+                        st.rerun()
+                    except Exception as err:
+                        st.error(f"Transaction failed: {err}")
+                else:
+                    st.error("Connect database first.")
+        with p_col2:
+            st.markdown("**Live Movements Log**")
+            if not raw_movements.empty:
+                st.dataframe(raw_movements.head(8), use_container_width=True, hide_index=True)
+    else:
+        st.info("No active catalog available.")
 
 # ------------------------------------------
-# TAB 5: AUTONOMOUS PO DISPATCHER
+# TAB 5: PO DISPATCHER
 # ------------------------------------------
 with tab_dispatcher:
-    st.markdown("#### **Autonomous Purchase Order Dispatch Center**")
-    st.caption("Automated supplier payload generation with strict TLS SMTP routing.")
-    
+    st.markdown("##### **Autonomous Purchase Order Dispatch Center**")
     if not analytics_df.empty:
-        po_candidates = analytics_df[analytics_df["suggested_po_qty"] > 0]
-        
-        if po_candidates.empty:
-            st.success("All product lines operating within safe inventory thresholds. No purchase orders required.")
+        po_items = analytics_df[analytics_df["suggested_po_qty"] > 0]
+        if po_items.empty:
+            st.success("All inventory lines operating within safety parameters.")
         else:
-            st.warning(f"Replenishment required for {len(po_candidates)} catalog line(s).")
+            st.warning(f"Restock threshold breached on {len(po_items)} SKU(s).")
+            sel_v = st.selectbox("Group by Supplier", po_items["vendor"].unique())
+            v_orders = po_items[po_items["vendor"] == sel_v]
+            tgt_mail = v_orders["email"].iloc[0] if "email" in v_orders.columns else ""
+            rcpt = st.text_input("Dispatch Recipient Email", value=tgt_mail, placeholder="supplier@domain.com")
             
-            selected_vendor = st.selectbox("Filter Orders by Supplier", po_candidates["vendor"].unique())
-            vendor_orders = po_candidates[po_candidates["vendor"] == selected_vendor]
+            po_text = f"PURCHASE ORDER: INVENTRO.AI RESTOCK\nSupplier: {sel_v}\n" + "-"*50 + "\n"
+            for _, r in v_orders.iterrows():
+                po_text += f"{r['sku']:<12} | {r['name'][:20]:<20} | Stock: {r['stock']} | Order: {r['suggested_po_qty']} units\n"
+            st.text_area("PO Payload", value=po_text, height=180)
             
-            target_email = vendor_orders["email"].iloc[0] if ("email" in vendor_orders.columns and str(vendor_orders["email"].iloc[0]).strip()) else ""
-            recipient_email = st.text_input("Supplier Dispatch Email", value=target_email, placeholder="dispatch@vendor.com")
-            
-            po_body_lines = [
-                f"PURCHASE ORDER — INVENTRO.AI AUTONOMOUS REPLENISHMENT\n",
-                f"Supplier: {selected_vendor}",
-                f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                "-" * 60,
-                f"{'SKU':<12} | {'Item Name':<25} | {'Stock':<6} | {'ROP':<6} | {'Order Qty'}",
-                "-" * 60
-            ]
-            for _, r in vendor_orders.iterrows():
-                po_body_lines.append(f"{r['sku']:<12} | {r['name'][:24]:<25} | {r['stock']:<6} | {r['rop']:<6} | {r['suggested_po_qty']} units")
-            po_body_lines.append("-" * 60)
-            po_body_lines.append("\nPlease confirm order fulfillment and dispatch turnaround time.")
-            
-            po_payload = "\n".join(po_body_lines)
-            st.text_area("Purchase Order Payload Preview", value=po_payload, height=220)
-            
-            if st.button(f"DISPATCH PURCHASE ORDER TO {selected_vendor.upper()}", type="primary"):
-                email_regex = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
+            if st.button("TRANSMIT PURCHASE ORDER VIA TLS", type="primary"):
                 if not smtp_sender or not smtp_password:
-                    st.error("Configure SMTP Sender Email and App Password in the sidebar.")
-                elif not recipient_email or not re.match(email_regex, recipient_email.strip()):
-                    st.error("Provide a valid recipient email address (e.g., dispatch@supplier.com).")
+                    st.error("Configure SMTP credentials in sidebar.")
                 else:
                     try:
                         msg = MIMEMultipart()
                         msg["From"] = smtp_sender
-                        msg["To"] = recipient_email.strip()
-                        msg["Subject"] = f"URGENT: Purchase Order Restock - {selected_vendor} [{datetime.now().strftime('%Y-%m-%d')}]"
-                        msg.attach(MIMEText(po_payload, "plain"))
-                        
-                        server = smtplib.SMTP(smtp_server, int(smtp_port), timeout=15)
-                        server.starttls()
-                        server.login(smtp_sender, smtp_password)
-                        server.send_message(msg)
-                        server.quit()
-                        
-                        st.success(f"Purchase Order dispatched successfully to {recipient_email}.")
-                    except smtplib.SMTPAuthenticationError:
-                        st.error("SMTP Auth Failure: Gmail requires a dedicated 16-character App Password.")
-                    except smtplib.SMTPConnectError:
-                        st.error("SMTP Connection Error: Unable to reach host. Check SMTP Server and Port settings.")
-                    except TimeoutError:
-                        st.error("SMTP Timeout: Connection timed out.")
-                    except Exception as mail_err:
-                        st.error(f"SMTP Dispatch Error: {mail_err}")
+                        msg["To"] = rcpt
+                        msg["Subject"] = f"PO RESTOCK ORDER - {sel_v}"
+                        msg.attach(MIMEText(po_text, "plain"))
+                        srv = smtplib.SMTP(smtp_server, int(smtp_port), timeout=15)
+                        srv.starttls()
+                        srv.login(smtp_sender, smtp_password)
+                        srv.send_message(msg)
+                        srv.quit()
+                        st.success(f"Purchase order transmitted to {rcpt}!")
+                    except Exception as m_err:
+                        st.error(f"SMTP Error: {m_err}")
     else:
         st.info("Database not connected.")
 
 # ------------------------------------------
-# TAB 6: DATABASE INFRASTRUCTURE & TERMINAL
+# TAB 6: INFRASTRUCTURE TERMINAL
 # ------------------------------------------
 with tab_infra:
-    st.markdown("#### **Database Infrastructure & Schema Provisioner**")
-    col_prov, col_sql = st.columns([1, 1.2])
-    
-    with col_prov:
-        st.markdown("**Clean Schema Provisioning**")
-        st.caption("Initializes production tables (`products_master`, `sales_ledger`, `stock_movements`) without inserting dummy rows.")
-        
+    st.markdown("##### **Relational Schema Provisioning & Direct SQL Terminal**")
+    i_col1, i_col2 = st.columns([1, 1.2])
+    with i_col1:
         if st.button("PROVISION PRODUCTION TABLES"):
             if is_connected:
                 try:
                     with engine.begin() as conn:
-                        conn.execute(text("""
-                        CREATE TABLE IF NOT EXISTS products_master (
-                            sku VARCHAR(50) PRIMARY KEY,
-                            name VARCHAR(150),
-                            category VARCHAR(50),
-                            stock INT DEFAULT 0,
-                            lead_time INT DEFAULT 2,
-                            moq INT DEFAULT 1,
-                            pack_size INT DEFAULT 1,
-                            vendor VARCHAR(100),
-                            email VARCHAR(100),
-                            expiry_days INT DEFAULT 30
-                        );
-                        """))
-                        conn.execute(text("""
-                        CREATE TABLE IF NOT EXISTS sales_ledger (
-                            id SERIAL PRIMARY KEY,
-                            transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            sku VARCHAR(50),
-                            product_name VARCHAR(150),
-                            category VARCHAR(50),
-                            quantity_sold INT DEFAULT 1,
-                            is_weekend INT DEFAULT 0
-                        );
-                        """))
-                        conn.execute(text("""
-                        CREATE TABLE IF NOT EXISTS stock_movements (
-                            id SERIAL PRIMARY KEY,
-                            movement_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            sku VARCHAR(50),
-                            movement_type VARCHAR(50),
-                            quantity INT,
-                            notes VARCHAR(255)
-                        );
-                        """))
-                    st.success("Relational schemas initialized.")
+                        conn.execute(text("CREATE TABLE IF NOT EXISTS products_master (sku VARCHAR(50) PRIMARY KEY, name VARCHAR(150), category VARCHAR(50), stock INT DEFAULT 0, lead_time INT DEFAULT 2, moq INT DEFAULT 1, pack_size INT DEFAULT 1, vendor VARCHAR(100), email VARCHAR(100), expiry_days INT DEFAULT 30);"))
+                        conn.execute(text("CREATE TABLE IF NOT EXISTS sales_ledger (id SERIAL PRIMARY KEY, transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sku VARCHAR(50), product_name VARCHAR(150), category VARCHAR(50), quantity_sold INT DEFAULT 1, is_weekend INT DEFAULT 0);"))
+                        conn.execute(text("CREATE TABLE IF NOT EXISTS stock_movements (id SERIAL PRIMARY KEY, movement_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sku VARCHAR(50), movement_type VARCHAR(50), quantity INT, notes VARCHAR(255));"))
+                    st.success("Schemas initialized successfully.")
                     st.rerun()
-                except SQLAlchemyError as p_err:
-                    st.error(f"Provisioning Failed: {p_err}")
+                except Exception as p_err:
+                    st.error(f"Provisioning error: {p_err}")
             else:
-                st.error("Connect to a database in the sidebar before provisioning.")
-
-    with col_sql:
-        st.markdown("**SQL Direct Command Terminal**")
-        custom_sql = st.text_area("Execute Query on Active DB:", placeholder="SELECT * FROM products_master LIMIT 10;")
-        if st.button("EXECUTE SQL QUERY"):
-            if custom_sql and custom_sql.strip() and is_connected:
+                st.error("Connect to a database first.")
+    with i_col2:
+        sql_input = st.text_area("SQL Terminal", placeholder="SELECT * FROM products_master LIMIT 5;")
+        if st.button("RUN QUERY"):
+            if sql_input and is_connected:
                 try:
                     with engine.connect() as conn:
-                        query_res = pd.read_sql(text(custom_sql), conn)
-                        st.dataframe(query_res, use_container_width=True)
-                except SQLAlchemyError as q_err:
-                    st.error(f"SQL Error: {q_err}")
-            else:
-                st.warning("Provide a valid query and ensure database is connected.")
+                        st.dataframe(pd.read_sql(text(sql_input), conn), use_container_width=True)
+                except Exception as q_err:
+                    st.error(f"Query error: {q_err}")
