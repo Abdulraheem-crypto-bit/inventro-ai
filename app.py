@@ -780,8 +780,6 @@ if st.session_state.active_page == "dashboard":
         else:
             st.markdown(f"<div style='text-align:center; padding: 40px 0;'><h2>{total_stock:,} Units</h2><p>Telemetry Ready</p></div>", unsafe_allow_html=True)
 
-        st.markdown(f"<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.76rem; font-weight: 600; padding-top: 4px;'><div><span style='color:#00B2FF;'>●</span> Healthy: <b style='color:#FFF;'>{healthy_units}</b></div><div><span style='color:#FEB019;'>●</span> Restock: <b style='color:#FFF;'>{restock_needed}</b></div><div><span style='color:#00E396;'>●</span> Fast Mover: <b style='color:#FFF;'>{int(len(analytics_df)*0.2)}</b></div><div><span style='color:#FF4560;'>●</span> Spoilage: <b style='color:#FFF;'>{perish_alert}</b></div></div></div>", unsafe_allow_html=True)
-
     r2_c1, r2_c2 = st.columns([1.6, 1.1])
 
     with r2_c1:
@@ -885,7 +883,7 @@ elif st.session_state.active_page == "profile":
                 if "PostgreSQL" in p_dialect:
                     p_uri = f"postgresql://{p_user}:{p_pass}@{p_host}:{p_port or '5432'}/{clean_name}?sslmode=require"
                 elif "MySQL" in p_dialect or "MariaDB" in p_dialect:
-                    p_uri = f"mysql+pymysql://{p_user}:{p_pass}@{p_host}:{p_port or '3306'}/{clean_name}"
+                    p_uri = f"mysql+pymysql://{db_user}:{db_pass}@{p_host}:{p_port or '3306'}/{clean_name}"
                 elif "SQLite" in p_dialect:
                     p_uri = f"sqlite:///{clean_name}.db"
                 else:
@@ -1041,17 +1039,48 @@ elif st.session_state.active_page == "pos_scan":
                         sku_col = prod_map.get("sku", "sku")
                         with engine.begin() as conn:
                             if "Stock IN" in action:
-                                conn.execute(text(f"UPDATE products_master SET {stock_col} = {stock_col} + :qty WHERE {sku_col} = :sku"), {"qty": units, "sku": selected_sku})
-                                conn.execute(text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'STOCK_IN', :qty, 'Intake delivery')"), {"ts": datetime.now(), "sku": selected_sku, "qty": units})
+                                conn.execute(
+                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} + :qty WHERE {sku_col} = :sku"),
+                                    {"qty": units, "sku": selected_sku}
+                                )
+                                conn.execute(
+                                    text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'STOCK_IN', :qty, 'Intake delivery')"),
+                                    {"ts": datetime.now(), "sku": selected_sku, "qty": units}
+                                )
                                 st.toast(f"Committed +{units}x {sku_row['name']}", icon="📥")
+
                             elif "POS Checkout" in action:
-                                res = conn.execute(text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku AND {stock_col} >= :qty"), {"qty": units, "sku": selected_sku})
+                                res = conn.execute(
+                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku AND {stock_col} >= :qty"),
+                                    {"qty": units, "sku": selected_sku}
+                                )
                                 if res.rowcount == 0:
                                     st.error("Transaction Aborted: Insufficient stock!")
                                 else:
-                                    conn.execute(text("INSERT INTO sales_ledger (transaction_date, sku, product_name, category, quantity_sold, is_weekend) VALUES (:tdate, :sku, :name, :cat, :qty, :wkd)"), {"tdate": datetime.now(), "sku": selected_sku, "name": sku_row["name"], "cat": sku_row["category"], "qty": units, "wkd": 1 if datetime.now().weekday() >= 5 else 0})
-                                    conn.execute(text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'POS_SCAN', :qty, 'Live register checkout')"), {"ts": datetime.now(), "sku": selected_sku, "qty": -units})
+                                    conn.execute(
+                                        text("INSERT INTO sales_ledger (transaction_date, sku, product_name, category, quantity_sold, is_weekend) VALUES (:tdate, :sku, :name, :cat, :qty, :wkd)"),
+                                        {"tdate": datetime.now(), "sku": selected_sku, "name": sku_row["name"], "cat": sku_row["category"], "qty": units, "wkd": 1 if datetime.now().weekday() >= 5 else 0}
+                                    )
+                                    conn.execute(
+                                        text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'POS_SCAN', :qty, 'Live register checkout')"),
+                                        {"ts": datetime.now(), "sku": selected_sku, "qty": -units}
+                                    )
                                     st.toast(f"Sold -{units}x {sku_row['name']}", icon="🛒")
+
+                            elif "Stock OUT" in action:
+                                res = conn.execute(
+                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku AND {stock_col} >= :qty"),
+                                    {"qty": units, "sku": selected_sku}
+                                )
+                                if res.rowcount == 0:
+                                    st.error("Write-Off Aborted: Available stock is insufficient to write off this quantity!")
+                                else:
+                                    conn.execute(
+                                        text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'STOCK_OUT (Write-Off)', :qty, 'Inventory write-off / damage')"),
+                                        {"ts": datetime.now(), "sku": selected_sku, "qty": -units}
+                                    )
+                                    st.toast(f"Written off -{units}x {sku_row['name']}", icon="📤")
+
                         st.rerun()
                     except Exception as err:
                         st.error(f"Transaction failed: {err}")
