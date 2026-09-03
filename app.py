@@ -385,7 +385,7 @@ def format_currency(amount_usd: float) -> str:
     converted = amount_usd * (c_mult if c_code != "USD" else 1.0)
     return f"{c_sym}{converted:,.2f}"
 
-# Navigation State
+# Navigation State: Defaults to Overview Dashboard
 if "active_page" not in st.session_state:
     st.session_state.active_page = "dashboard"
 
@@ -525,17 +525,18 @@ with st.sidebar:
 
     st.markdown("<p style='font-size: 0.7rem; font-weight: 800; color: #8E9BAE; letter-spacing: 0.08em; margin-bottom: 6px;'>NAVIGATION PAGES</p>", unsafe_allow_html=True)
 
+    # Reordered page navigation list with Profile & Vault placed at the end
     PAGES_LIST = [
         ("📊 Dashboard Overview", "dashboard"),
         ("🤖 AI Copilot Agent", "ai_copilot"),
-        ("👤 Profile & Vault", "profile"),
         ("📋 Recent Transactions", "recent_tx"),
         ("🔬 Data Report (EDA)", "eda_report"),
         ("📦 Inventory Catalog", "catalog"),
         ("🛡️ Risk & Governance", "risk_gov"),
         ("⚡ POS Scan & Intake", "pos_scan"),
         ("✉️ PO Dispatch", "po_dispatch"),
-        ("🔌 DB Terminal", "db_terminal")
+        ("🔌 DB Terminal", "db_terminal"),
+        ("👤 Profile & Vault", "profile")
     ]
 
     for label, page_id in PAGES_LIST:
@@ -744,7 +745,7 @@ st.markdown(f"""
 # MAIN ROUTER: DYNAMIC PAGE SELECTION
 # ==========================================
 
-# 1. DASHBOARD OVERVIEW (Default Landing Page)
+# 1. DASHBOARD OVERVIEW
 if st.session_state.active_page == "dashboard":
     r1_c1, r1_c2, r1_c3 = st.columns([1.2, 1.2, 1.6])
 
@@ -780,6 +781,8 @@ if st.session_state.active_page == "dashboard":
             st.plotly_chart(fig_donut, use_container_width=True, config={"displayModeBar": False})
         else:
             st.markdown(f"<div style='text-align:center; padding: 40px 0;'><h2>{total_stock:,} Units</h2><p>Telemetry Ready</p></div>", unsafe_allow_html=True)
+
+        st.markdown(f"<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.76rem; font-weight: 600; padding-top: 4px;'><div><span style='color:#00B2FF;'>●</span> Healthy: <b style='color:#FFF;'>{healthy_units}</b></div><div><span style='color:#FEB019;'>●</span> Restock: <b style='color:#FFF;'>{restock_needed}</b></div><div><span style='color:#00E396;'>●</span> Fast Mover: <b style='color:#FFF;'>{int(len(analytics_df)*0.2)}</b></div><div><span style='color:#FF4560;'>●</span> Spoilage: <b style='color:#FFF;'>{perish_alert}</b></div></div></div>", unsafe_allow_html=True)
 
     r2_c1, r2_c2 = st.columns([1.6, 1.1])
 
@@ -901,7 +904,244 @@ elif st.session_state.active_page == "ai_copilot":
             
             st.session_state.chat_messages.append({"role": "assistant", "content": ai_answer})
 
-# 3. PROFILE & VAULT
+# 3. RECENT TRANSACTIONS
+elif st.session_state.active_page == "recent_tx":
+    st.markdown("##### **📋 Recent Fleet Movements & Ledger Events**")
+    if not raw_movements.empty:
+        st.dataframe(raw_movements.head(20), use_container_width=True, hide_index=True)
+    elif not analytics_df.empty:
+        display_cols = ["sku", "name", "category", "stock", "lead_time", "rop", "days_runway", "reorder_status", "abc_class", "suggested_po_qty", "vendor"]
+        available_cols = [c for c in display_cols if c in analytics_df.columns]
+        st.dataframe(analytics_df[available_cols].head(20), use_container_width=True, hide_index=True)
+    else:
+        st.info("No transaction records detected. Connect database or provision schema to initialize.")
+
+# 4. DATA REPORT (EDA)
+elif st.session_state.active_page == "eda_report":
+    st.markdown("##### **🔬 14-Point Automated Statistical EDA Telemetry**")
+    if not eda_results:
+        st.info("Awaiting live database connection to compile exploratory audit.")
+    else:
+        eda_c1, eda_c2, eda_c3, eda_c4 = st.columns(4)
+        eda_c1.metric("Catalog SKUs", eda_results["overview"]["catalog_rows"])
+        eda_c2.metric("Ledger Records", eda_results["overview"]["sales_ledger_rows"])
+        eda_c3.metric("Stock Outliers", eda_results["outliers"]["stock_outliers"])
+        eda_c4.metric("Audit Cells Scanned", f"{eda_results['overview']['total_cells_scanned']:,}")
+
+        st.divider()
+        e_col1, e_col2 = st.columns(2)
+        with e_col1:
+            st.markdown("**Numerical Feature Distributions**")
+            num_df = pd.DataFrame(eda_results["numerical_stats"]).T
+            num_df.index.name = "Metric"
+            st.dataframe(num_df.reset_index(), use_container_width=True, hide_index=True)
+        with e_col2:
+            st.markdown("**Data Hygiene & Anomaly Screening**")
+            dup_s = eda_results['duplicates']['duplicate_skus']
+            dup_t = eda_results['duplicates']['duplicate_transactions']
+            st.markdown(f"• **Duplicate Primary Barcodes:** `{'None (100% Unique)' if dup_s == 0 else f'{dup_s} conflicts'}`")
+            st.markdown(f"• **Duplicate Sales Events:** `{'None (Clean)' if dup_t == 0 else f'{dup_t} duplicates'}`")
+            if eda_results["data_quality"]:
+                for dq in eda_results["data_quality"]:
+                    st.error(f"⚠️ {dq}")
+            else:
+                st.success("✅ Clean Pipeline: Zero negative stock or future date leakage detected.")
+
+# 5. INVENTORY CATALOG
+elif st.session_state.active_page == "catalog":
+    st.markdown("##### **📦 Real-Time Catalog & ABC-XYZ Pareto Matrix**")
+    if not analytics_df.empty:
+        search_q = st.text_input("Filter Catalog by Name, SKU, or Category:", placeholder="Search catalog...")
+        filtered_df = analytics_df.copy()
+        if search_q:
+            filtered_df = filtered_df[
+                filtered_df["name"].str.contains(search_q, case=False, na=False) |
+                filtered_df["sku"].str.contains(search_q, case=False, na=False) |
+                filtered_df["category"].str.contains(search_q, case=False, na=False)
+            ]
+        cols_show = ["sku", "name", "category", "stock", "lead_time", "daily_velocity", "rop", "days_runway", "reorder_status", "abc_class", "suggested_po_qty", "vendor"]
+        st.dataframe(filtered_df[[c for c in cols_show if c in filtered_df.columns]], use_container_width=True, hide_index=True)
+    else:
+        st.info("No catalog data online.")
+
+# 6. RISK AND GOVERNANCE
+elif st.session_state.active_page == "risk_gov":
+    st.markdown("##### **🛡️ Autonomous Risk & Compliance Radar**")
+    st.caption("Heuristic detection of lead-time variances, stockout vulnerability, and cold-chain perishability.")
+
+    col_g1, col_g2, col_g3, col_g4 = st.columns(4)
+    col_g1.metric("Compliance Rating", "98/100", "+2 pts")
+    col_g2.metric("Critical Stockout Risks", restock_needed, "-1 resolving")
+    col_g3.metric("Shelf-Life Decay Alerts", perish_alert, "Action required")
+    col_g4.metric("Vendor Reliability Score", "96.4%", "Stable")
+
+    st.divider()
+    r_col1, r_col2 = st.columns([1.2, 1])
+
+    with r_col1:
+        st.markdown("**Perishability Horizon Breakdown**")
+        if not analytics_df.empty:
+            perish_items = analytics_df[analytics_df["expiry_days"] <= 14][["sku", "name", "category", "stock", "expiry_days", "vendor"]]
+            if not perish_items.empty:
+                st.dataframe(perish_items, use_container_width=True, hide_index=True)
+            else:
+                st.success("✨ Zero items within critical 14-day expiration window.")
+
+    with r_col2:
+        st.markdown("**Vendor SLA Compliance Watch**")
+        if not analytics_df.empty:
+            vendor_lead_times = analytics_df.groupby("vendor")["lead_time"].mean().reset_index()
+            vendor_lead_times.columns = ["Supplier", "Avg Turnaround (Days)"]
+            st.dataframe(vendor_lead_times, use_container_width=True, hide_index=True)
+
+# 7. POS SCAN INTAKE
+elif st.session_state.active_page == "pos_scan":
+    st.markdown("##### **⚡ Point-of-Sale Checkout & Receiving Terminal**")
+    if not analytics_df.empty:
+        p_col1, p_col2 = st.columns([1, 1.4])
+        with p_col1:
+            selected_sku = st.selectbox("Scan or Select SKU / Barcode", analytics_df["sku"].tolist())
+            sku_row = analytics_df[analytics_df["sku"] == selected_sku].iloc[0]
+            action = st.radio("Movement Operation:", ["📥 Stock IN (Receive)", "⚡ POS Checkout (Sale)", "📤 Stock OUT (Write-off)"], horizontal=True)
+            units = st.number_input("Unit Count", min_value=1, step=1, value=1)
+            
+            st.markdown(f"**Item:** `{sku_row['name']}` | **Current Stock:** `{sku_row['stock']}` | **ROP:** `{sku_row['rop']}`")
+
+            if st.button("COMMIT TRANSACTION TO DB", type="primary", use_container_width=True):
+                if is_connected:
+                    try:
+                        stock_col = prod_map.get("stock", "stock")
+                        sku_col = prod_map.get("sku", "sku")
+                        with engine.begin() as conn:
+                            if "Stock IN" in action:
+                                conn.execute(
+                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} + :qty WHERE {sku_col} = :sku"),
+                                    {"qty": units, "sku": selected_sku}
+                                )
+                                conn.execute(
+                                    text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'STOCK_IN', :qty, 'Intake delivery')"),
+                                    {"ts": datetime.now(), "sku": selected_sku, "qty": units}
+                                )
+                                st.toast(f"Committed +{units}x {sku_row['name']}", icon="📥")
+
+                            elif "POS Checkout" in action:
+                                res = conn.execute(
+                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku AND {stock_col} >= :qty"),
+                                    {"qty": units, "sku": selected_sku}
+                                )
+                                if res.rowcount == 0:
+                                    st.error("Transaction Aborted: Insufficient stock!")
+                                else:
+                                    conn.execute(
+                                        text("INSERT INTO sales_ledger (transaction_date, sku, product_name, category, quantity_sold, is_weekend) VALUES (:tdate, :sku, :name, :cat, :qty, :wkd)"),
+                                        {"tdate": datetime.now(), "sku": selected_sku, "name": sku_row["name"], "cat": sku_row["category"], "qty": units, "wkd": 1 if datetime.now().weekday() >= 5 else 0}
+                                    )
+                                    conn.execute(
+                                        text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'POS_SCAN', :qty, 'Live register checkout')"),
+                                        {"ts": datetime.now(), "sku": selected_sku, "qty": -units}
+                                    )
+                                    st.toast(f"Sold -{units}x {sku_row['name']}", icon="🛒")
+
+                            elif "Stock OUT" in action:
+                                res = conn.execute(
+                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku AND {stock_col} >= :qty"),
+                                    {"qty": units, "sku": selected_sku}
+                                )
+                                if res.rowcount == 0:
+                                    st.error("Write-Off Aborted: Available stock is insufficient to write off this quantity!")
+                                else:
+                                    conn.execute(
+                                        text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'STOCK_OUT (Write-Off)', :qty, 'Inventory write-off / damage')"),
+                                        {"ts": datetime.now(), "sku": selected_sku, "qty": -units}
+                                    )
+                                    st.toast(f"Written off -{units}x {sku_row['name']}", icon="📤")
+
+                        st.rerun()
+                    except Exception as err:
+                        st.error(f"Transaction failed: {err}")
+                else:
+                    st.error("Database connection offline.")
+        with p_col2:
+            st.markdown("**Live Movements Log**")
+            if not raw_movements.empty:
+                st.dataframe(raw_movements.head(8), use_container_width=True, hide_index=True)
+    else:
+        st.info("No active catalog available.")
+
+# 8. PO DISPATCH
+elif st.session_state.active_page == "po_dispatch":
+    st.markdown("##### **✉️ Autonomous Purchase Order Dispatch Center**")
+    if not analytics_df.empty:
+        po_items = analytics_df[analytics_df["suggested_po_qty"] > 0]
+        if po_items.empty:
+            st.success("All inventory lines operating within safety parameters.")
+        else:
+            st.warning(f"Restock threshold breached on {len(po_items)} SKU(s).")
+            sel_v = st.selectbox("Group by Supplier", po_items["vendor"].unique())
+            v_orders = po_items[po_items["vendor"] == sel_v]
+            tgt_mail = v_orders["email"].iloc[0] if "email" in v_orders.columns else ""
+            rcpt = st.text_input("Dispatch Recipient Email", value=tgt_mail, placeholder="supplier@domain.com")
+            
+            po_text = f"PURCHASE ORDER: INVENTRO.AI RESTOCK\nSupplier: {sel_v}\nCurrency: {c_code} ({c_sym.strip()})\n" + "-"*50 + "\n"
+            for _, r in v_orders.iterrows():
+                po_text += f"{r['sku']:<12} | {r['name'][:20]:<20} | Stock: {r['stock']} | Order: {r['suggested_po_qty']} units\n"
+            st.text_area("PO Payload Preview", value=po_text, height=180)
+            
+            if st.button("TRANSMIT PURCHASE ORDER VIA TLS", type="primary"):
+                if not current_user.get("smtp_sender") or not current_user.get("smtp_password"):
+                    st.error("Configure SMTP credentials in the Operator Profile tab.")
+                else:
+                    try:
+                        msg = MIMEMultipart()
+                        msg["From"] = current_user["smtp_sender"]
+                        msg["To"] = rcpt
+                        msg["Subject"] = f"PO RESTOCK ORDER - {sel_v}"
+                        msg.attach(MIMEText(po_text, "plain"))
+                        srv = smtplib.SMTP(current_user["smtp_server"], int(current_user["smtp_port"]), timeout=15)
+                        srv.starttls()
+                        srv.login(current_user["smtp_sender"], current_user["smtp_password"])
+                        srv.send_message(msg)
+                        srv.quit()
+                        st.success(f"Purchase order transmitted to {rcpt}!")
+                    except Exception as m_err:
+                        st.error(f"SMTP Error: {m_err}")
+    else:
+        st.info("Database not connected.")
+
+# 9. DB TERMINAL
+elif st.session_state.active_page == "db_terminal":
+    st.markdown("##### **🔌 Relational Schema Provisioning & Direct SQL Terminal**")
+    i_c1, i_c2 = st.columns([1, 1.2])
+
+    with i_c1:
+        st.markdown("**Production Schema Provisioning**")
+        st.caption("Initializes core production tables (`products_master`, `sales_ledger`, `stock_movements`) without inserting dummy rows.")
+        if st.button("PROVISION PRODUCTION SCHEMAS", type="primary"):
+            if is_connected:
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("CREATE TABLE IF NOT EXISTS products_master (sku VARCHAR(50) PRIMARY KEY, name VARCHAR(150), category VARCHAR(50), stock INT DEFAULT 0, lead_time INT DEFAULT 2, moq INT DEFAULT 1, pack_size INT DEFAULT 1, vendor VARCHAR(100), email VARCHAR(100), expiry_days INT DEFAULT 30, price NUMERIC DEFAULT 100.0);"))
+                        conn.execute(text("CREATE TABLE IF NOT EXISTS sales_ledger (id SERIAL PRIMARY KEY, transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sku VARCHAR(50), product_name VARCHAR(150), category VARCHAR(50), quantity_sold INT DEFAULT 1, is_weekend INT DEFAULT 0);"))
+                        conn.execute(text("CREATE TABLE IF NOT EXISTS stock_movements (id SERIAL PRIMARY KEY, movement_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sku VARCHAR(50), movement_type VARCHAR(50), quantity INT, notes VARCHAR(255));"))
+                    st.success("Schemas initialized successfully.")
+                    st.rerun()
+                except Exception as p_err:
+                    st.error(f"Provisioning error: {p_err}")
+            else:
+                st.error("Connect to a database first.")
+
+    with i_c2:
+        st.markdown("**SQL Command Terminal**")
+        sql_input = st.text_area("Execute Query on Active DB:", placeholder="SELECT * FROM products_master LIMIT 5;")
+        if st.button("EXECUTE QUERY"):
+            if sql_input and is_connected:
+                try:
+                    with engine.connect() as conn:
+                        st.dataframe(pd.read_sql(text(sql_input), conn), use_container_width=True)
+                except Exception as q_err:
+                    st.error(f"Query error: {q_err}")
+
+# 10. PROFILE & VAULT (Placed at the end of the page list)
 elif st.session_state.active_page == "profile":
     st.markdown("##### **👤 Operator Profile & Encrypted Vault**")
     st.caption("Manage regional currency localization, database credentials, and SMTP dispatchers.")
@@ -990,240 +1230,3 @@ elif st.session_state.active_page == "profile":
             st.rerun()
 
         st.markdown("</div>", unsafe_allow_html=True)
-
-# 4. RECENT TRANSACTIONS
-elif st.session_state.active_page == "recent_tx":
-    st.markdown("##### **📋 Recent Fleet Movements & Ledger Events**")
-    if not raw_movements.empty:
-        st.dataframe(raw_movements.head(20), use_container_width=True, hide_index=True)
-    elif not analytics_df.empty:
-        display_cols = ["sku", "name", "category", "stock", "lead_time", "rop", "days_runway", "reorder_status", "abc_class", "suggested_po_qty", "vendor"]
-        available_cols = [c for c in display_cols if c in analytics_df.columns]
-        st.dataframe(analytics_df[available_cols].head(20), use_container_width=True, hide_index=True)
-    else:
-        st.info("No transaction records detected. Connect database or provision schema to initialize.")
-
-# 5. DATA REPORT (EDA)
-elif st.session_state.active_page == "eda_report":
-    st.markdown("##### **🔬 14-Point Automated Statistical EDA Telemetry**")
-    if not eda_results:
-        st.info("Awaiting live database connection to compile exploratory audit.")
-    else:
-        eda_c1, eda_c2, eda_c3, eda_c4 = st.columns(4)
-        eda_c1.metric("Catalog SKUs", eda_results["overview"]["catalog_rows"])
-        eda_c2.metric("Ledger Records", eda_results["overview"]["sales_ledger_rows"])
-        eda_c3.metric("Stock Outliers", eda_results["outliers"]["stock_outliers"])
-        eda_c4.metric("Audit Cells Scanned", f"{eda_results['overview']['total_cells_scanned']:,}")
-
-        st.divider()
-        e_col1, e_col2 = st.columns(2)
-        with e_col1:
-            st.markdown("**Numerical Feature Distributions**")
-            num_df = pd.DataFrame(eda_results["numerical_stats"]).T
-            num_df.index.name = "Metric"
-            st.dataframe(num_df.reset_index(), use_container_width=True, hide_index=True)
-        with e_col2:
-            st.markdown("**Data Hygiene & Anomaly Screening**")
-            dup_s = eda_results['duplicates']['duplicate_skus']
-            dup_t = eda_results['duplicates']['duplicate_transactions']
-            st.markdown(f"• **Duplicate Primary Barcodes:** `{'None (100% Unique)' if dup_s == 0 else f'{dup_s} conflicts'}`")
-            st.markdown(f"• **Duplicate Sales Events:** `{'None (Clean)' if dup_t == 0 else f'{dup_t} duplicates'}`")
-            if eda_results["data_quality"]:
-                for dq in eda_results["data_quality"]:
-                    st.error(f"⚠️ {dq}")
-            else:
-                st.success("✅ Clean Pipeline: Zero negative stock or future date leakage detected.")
-
-# 6. INVENTORY CATALOG
-elif st.session_state.active_page == "catalog":
-    st.markdown("##### **📦 Real-Time Catalog & ABC-XYZ Pareto Matrix**")
-    if not analytics_df.empty:
-        search_q = st.text_input("Filter Catalog by Name, SKU, or Category:", placeholder="Search catalog...")
-        filtered_df = analytics_df.copy()
-        if search_q:
-            filtered_df = filtered_df[
-                filtered_df["name"].str.contains(search_q, case=False, na=False) |
-                filtered_df["sku"].str.contains(search_q, case=False, na=False) |
-                filtered_df["category"].str.contains(search_q, case=False, na=False)
-            ]
-        cols_show = ["sku", "name", "category", "stock", "lead_time", "daily_velocity", "rop", "days_runway", "reorder_status", "abc_class", "suggested_po_qty", "vendor"]
-        st.dataframe(filtered_df[[c for c in cols_show if c in filtered_df.columns]], use_container_width=True, hide_index=True)
-    else:
-        st.info("No catalog data online.")
-
-# 7. RISK AND GOVERNANCE
-elif st.session_state.active_page == "risk_gov":
-    st.markdown("##### **🛡️ Autonomous Risk & Compliance Radar**")
-    st.caption("Heuristic detection of lead-time variances, stockout vulnerability, and cold-chain perishability.")
-
-    col_g1, col_g2, col_g3, col_g4 = st.columns(4)
-    col_g1.metric("Compliance Rating", "98/100", "+2 pts")
-    col_g2.metric("Critical Stockout Risks", restock_needed, "-1 resolving")
-    col_g3.metric("Shelf-Life Decay Alerts", perish_alert, "Action required")
-    col_g4.metric("Vendor Reliability Score", "96.4%", "Stable")
-
-    st.divider()
-    r_col1, r_col2 = st.columns([1.2, 1])
-
-    with r_col1:
-        st.markdown("**Perishability Horizon Breakdown**")
-        if not analytics_df.empty:
-            perish_items = analytics_df[analytics_df["expiry_days"] <= 14][["sku", "name", "category", "stock", "expiry_days", "vendor"]]
-            if not perish_items.empty:
-                st.dataframe(perish_items, use_container_width=True, hide_index=True)
-            else:
-                st.success("✨ Zero items within critical 14-day expiration window.")
-
-    with r_col2:
-        st.markdown("**Vendor SLA Compliance Watch**")
-        if not analytics_df.empty:
-            vendor_lead_times = analytics_df.groupby("vendor")["lead_time"].mean().reset_index()
-            vendor_lead_times.columns = ["Supplier", "Avg Turnaround (Days)"]
-            st.dataframe(vendor_lead_times, use_container_width=True, hide_index=True)
-
-# 8. POS SCAN INTAKE
-elif st.session_state.active_page == "pos_scan":
-    st.markdown("##### **⚡ Point-of-Sale Checkout & Receiving Terminal**")
-    if not analytics_df.empty:
-        p_col1, p_col2 = st.columns([1, 1.4])
-        with p_col1:
-            selected_sku = st.selectbox("Scan or Select SKU / Barcode", analytics_df["sku"].tolist())
-            sku_row = analytics_df[analytics_df["sku"] == selected_sku].iloc[0]
-            action = st.radio("Movement Operation:", ["📥 Stock IN (Receive)", "⚡ POS Checkout (Sale)", "📤 Stock OUT (Write-off)"], horizontal=True)
-            units = st.number_input("Unit Count", min_value=1, step=1, value=1)
-            
-            st.markdown(f"**Item:** `{sku_row['name']}` | **Current Stock:** `{sku_row['stock']}` | **ROP:** `{sku_row['rop']}`")
-
-            if st.button("COMMIT TRANSACTION TO DB", type="primary", use_container_width=True):
-                if is_connected:
-                    try:
-                        stock_col = prod_map.get("stock", "stock")
-                        sku_col = prod_map.get("sku", "sku")
-                        with engine.begin() as conn:
-                            if "Stock IN" in action:
-                                conn.execute(
-                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} + :qty WHERE {sku_col} = :sku"),
-                                    {"qty": units, "sku": selected_sku}
-                                )
-                                conn.execute(
-                                    text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'STOCK_IN', :qty, 'Intake delivery')"),
-                                    {"ts": datetime.now(), "sku": selected_sku, "qty": units}
-                                )
-                                st.toast(f"Committed +{units}x {sku_row['name']}", icon="📥")
-
-                            elif "POS Checkout" in action:
-                                res = conn.execute(
-                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku AND {stock_col} >= :qty"),
-                                    {"qty": units, "sku": selected_sku}
-                                )
-                                if res.rowcount == 0:
-                                    st.error("Transaction Aborted: Insufficient stock!")
-                                else:
-                                    conn.execute(
-                                        text("INSERT INTO sales_ledger (transaction_date, sku, product_name, category, quantity_sold, is_weekend) VALUES (:tdate, :sku, :name, :cat, :qty, :wkd)"),
-                                        {"tdate": datetime.now(), "sku": selected_sku, "name": sku_row["name"], "cat": sku_row["category"], "qty": units, "wkd": 1 if datetime.now().weekday() >= 5 else 0}
-                                    )
-                                    conn.execute(
-                                        text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'POS_SCAN', :qty, 'Live register checkout')"),
-                                        {"ts": datetime.now(), "sku": selected_sku, "qty": -units}
-                                    )
-                                    st.toast(f"Sold -{units}x {sku_row['name']}", icon="🛒")
-
-                            elif "Stock OUT" in action:
-                                res = conn.execute(
-                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku AND {stock_col} >= :qty"),
-                                    {"qty": units, "sku": selected_sku}
-                                )
-                                if res.rowcount == 0:
-                                    st.error("Write-Off Aborted: Available stock is insufficient to write off this quantity!")
-                                else:
-                                    conn.execute(
-                                        text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'STOCK_OUT (Write-Off)', :qty, 'Inventory write-off / damage')"),
-                                        {"ts": datetime.now(), "sku": selected_sku, "qty": -units}
-                                    )
-                                    st.toast(f"Written off -{units}x {sku_row['name']}", icon="📤")
-
-                        st.rerun()
-                    except Exception as err:
-                        st.error(f"Transaction failed: {err}")
-                else:
-                    st.error("Database connection offline.")
-        with p_col2:
-            st.markdown("**Live Movements Log**")
-            if not raw_movements.empty:
-                st.dataframe(raw_movements.head(8), use_container_width=True, hide_index=True)
-    else:
-        st.info("No active catalog available.")
-
-# 9. PO DISPATCH
-elif st.session_state.active_page == "po_dispatch":
-    st.markdown("##### **✉️ Autonomous Purchase Order Dispatch Center**")
-    if not analytics_df.empty:
-        po_items = analytics_df[analytics_df["suggested_po_qty"] > 0]
-        if po_items.empty:
-            st.success("All inventory lines operating within safety parameters.")
-        else:
-            st.warning(f"Restock threshold breached on {len(po_items)} SKU(s).")
-            sel_v = st.selectbox("Group by Supplier", po_items["vendor"].unique())
-            v_orders = po_items[po_items["vendor"] == sel_v]
-            tgt_mail = v_orders["email"].iloc[0] if "email" in v_orders.columns else ""
-            rcpt = st.text_input("Dispatch Recipient Email", value=tgt_mail, placeholder="supplier@domain.com")
-            
-            po_text = f"PURCHASE ORDER: INVENTRO.AI RESTOCK\nSupplier: {sel_v}\nCurrency: {c_code} ({c_sym.strip()})\n" + "-"*50 + "\n"
-            for _, r in v_orders.iterrows():
-                po_text += f"{r['sku']:<12} | {r['name'][:20]:<20} | Stock: {r['stock']} | Order: {r['suggested_po_qty']} units\n"
-            st.text_area("PO Payload Preview", value=po_text, height=180)
-            
-            if st.button("TRANSMIT PURCHASE ORDER VIA TLS", type="primary"):
-                if not current_user.get("smtp_sender") or not current_user.get("smtp_password"):
-                    st.error("Configure SMTP credentials in the Operator Profile tab.")
-                else:
-                    try:
-                        msg = MIMEMultipart()
-                        msg["From"] = current_user["smtp_sender"]
-                        msg["To"] = rcpt
-                        msg["Subject"] = f"PO RESTOCK ORDER - {sel_v}"
-                        msg.attach(MIMEText(po_text, "plain"))
-                        srv = smtplib.SMTP(current_user["smtp_server"], int(current_user["smtp_port"]), timeout=15)
-                        srv.starttls()
-                        srv.login(current_user["smtp_sender"], current_user["smtp_password"])
-                        srv.send_message(msg)
-                        srv.quit()
-                        st.success(f"Purchase order transmitted to {rcpt}!")
-                    except Exception as m_err:
-                        st.error(f"SMTP Error: {m_err}")
-    else:
-        st.info("Database not connected.")
-
-# 10. DB TERMINAL
-elif st.session_state.active_page == "db_terminal":
-    st.markdown("##### **🔌 Relational Schema Provisioning & Direct SQL Terminal**")
-    i_c1, i_c2 = st.columns([1, 1.2])
-
-    with i_c1:
-        st.markdown("**Production Schema Provisioning**")
-        st.caption("Initializes core production tables (`products_master`, `sales_ledger`, `stock_movements`) without inserting dummy rows.")
-        if st.button("PROVISION PRODUCTION SCHEMAS", type="primary"):
-            if is_connected:
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(text("CREATE TABLE IF NOT EXISTS products_master (sku VARCHAR(50) PRIMARY KEY, name VARCHAR(150), category VARCHAR(50), stock INT DEFAULT 0, lead_time INT DEFAULT 2, moq INT DEFAULT 1, pack_size INT DEFAULT 1, vendor VARCHAR(100), email VARCHAR(100), expiry_days INT DEFAULT 30, price NUMERIC DEFAULT 100.0);"))
-                        conn.execute(text("CREATE TABLE IF NOT EXISTS sales_ledger (id SERIAL PRIMARY KEY, transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sku VARCHAR(50), product_name VARCHAR(150), category VARCHAR(50), quantity_sold INT DEFAULT 1, is_weekend INT DEFAULT 0);"))
-                        conn.execute(text("CREATE TABLE IF NOT EXISTS stock_movements (id SERIAL PRIMARY KEY, movement_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sku VARCHAR(50), movement_type VARCHAR(50), quantity INT, notes VARCHAR(255));"))
-                    st.success("Schemas initialized successfully.")
-                    st.rerun()
-                except Exception as p_err:
-                    st.error(f"Provisioning error: {p_err}")
-            else:
-                st.error("Connect to a database first.")
-
-    with i_c2:
-        st.markdown("**SQL Command Terminal**")
-        sql_input = st.text_area("Execute Query on Active DB:", placeholder="SELECT * FROM products_master LIMIT 5;")
-        if st.button("EXECUTE QUERY"):
-            if sql_input and is_connected:
-                try:
-                    with engine.connect() as conn:
-                        st.dataframe(pd.read_sql(text(sql_input), conn), use_container_width=True)
-                except Exception as q_err:
-                    st.error(f"Query error: {q_err}")
