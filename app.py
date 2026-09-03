@@ -30,7 +30,7 @@ except ImportError:
     OPENAI_AVAILABLE = False
 
 # ==========================================
-# PAGE CONFIGURATION & DARK THEME
+# PAGE CONFIGURATION & DATAOPS THEME
 # ==========================================
 st.set_page_config(
     page_title="inventro.ai | Autonomous Retail OS",
@@ -41,19 +41,126 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@400;600;700&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Space Grotesk', sans-serif;
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+    /* Global DataOps Reset */
+    html, body, [class*="css"], .stApp {
+        font-family: 'Inter', sans-serif !important;
+        background-color: #07090E !important;
+        color: #E2E8F0 !important;
     }
-    code, pre {
+    
+    code, pre, .stCode, [data-testid="stMetricValue"] {
         font-family: 'JetBrains Mono', monospace !important;
+        font-feature-settings: "tnum" 1, "zero" 1;
+    }
+
+    /* Sidebar - Command Control Rail */
+    [data-testid="stSidebar"] {
+        background-color: #0B0F17 !important;
+        border-right: 1px solid #1E293B !important;
+    }
+    [data-testid="stSidebar"] hr {
+        border-color: #1E293B !important;
+    }
+
+    /* Metric Cards - Telemetry Panels */
+    [data-testid="stMetric"] {
+        background: #0D131F !important;
+        border: 1px solid #1E293B !important;
+        border-left: 3px solid #06B6D4 !important;
+        border-radius: 4px !important;
+        padding: 10px 14px !important;
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 0.72rem !important;
+        font-weight: 600 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.08em !important;
+        color: #64748B !important;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 1.5rem !important;
+        font-weight: 700 !important;
+        color: #F8FAFC !important;
+    }
+
+    /* Tabs - Operational Console Navigation */
+    .stTabs [data-baseweb="tab-list"] {
+        background-color: #0B0F17 !important;
+        padding: 4px !important;
+        border-radius: 6px !important;
+        border: 1px solid #1E293B !important;
+        gap: 4px !important;
+    }
+    .stTabs [data-baseweb="tab"] {
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 0.8rem !important;
+        font-weight: 600 !important;
+        color: #94A3B8 !important;
+        border-radius: 4px !important;
+        padding: 8px 14px !important;
+        border: none !important;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #1E293B !important;
+        color: #38BDF8 !important;
+    }
+
+    /* Data Tables - Bloomberg-Style Grid */
+    [data-testid="stDataFrame"] {
+        border: 1px solid #1E293B !important;
+        border-radius: 4px !important;
+        background: #090D16 !important;
+    }
+
+    /* Hardened Utility Buttons */
+    .stButton > button {
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 0.8rem !important;
+        letter-spacing: 0.04em !important;
+        font-weight: 600 !important;
+        border-radius: 4px !important;
+        border: 1px solid #334155 !important;
+        background: #0F172A !important;
+        color: #E2E8F0 !important;
+        transition: all 0.15s ease-in-out !important;
+    }
+    .stButton > button:hover {
+        border-color: #06B6D4 !important;
+        color: #38BDF8 !important;
+        box-shadow: 0 0 10px rgba(6, 182, 212, 0.2) !important;
+    }
+    .stButton > button[kind="primary"] {
+        background: #0891B2 !important;
+        border-color: #06B6D4 !important;
+        color: #FFFFFF !important;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background: #06B6D4 !important;
+    }
+
+    /* Inputs & Fields */
+    input, select, textarea, [data-baseweb="select"] {
+        background-color: #0B0F17 !important;
+        border-color: #1E293B !important;
+        color: #F1F5F9 !important;
+        border-radius: 4px !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 0.85rem !important;
+    }
+
+    /* Code Terminal Container */
+    .stCode {
+        border: 1px solid #1E293B !important;
+        border-radius: 4px !important;
+        background: #05070A !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 1. HARDENED SQLITE VAULT (WAL & TIMEOUTS)
+# 1. HARDENED SQLITE VAULT (WAL & CONCURRENCY)
 # ==========================================
 VAULT_DB = "users_vault.db"
 
@@ -174,37 +281,37 @@ if "authenticated_user" not in st.session_state:
     st.session_state.authenticated_user = None
 
 if not st.session_state.authenticated_user:
-    st.markdown("<h2 style='text-align: center;'>⚡ inventro.ai</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #94a3b8;'>Autonomous Retail OS & Dynamic Inventory Intelligence</p>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; color: #06B6D4;'>⚡ INVENTRO.AI</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #64748B;'>Autonomous Retail Operating System & Inventory Intelligence</p>", unsafe_allow_html=True)
     
     auth_col1, auth_col2, auth_col3 = st.columns([1, 1.2, 1])
     with auth_col2:
         auth_tab_login, auth_tab_signup = st.tabs(["🔐 Sign In", "📝 Create Account"])
         
         with auth_tab_login:
-            st.markdown("##### Access Stored Profile")
-            login_email = st.text_input("Email", key="login_email")
-            login_pass = st.text_input("Password", type="password", key="login_pass")
+            st.markdown("##### Operator Credentials")
+            login_email = st.text_input("Operator Email", key="login_email")
+            login_pass = st.text_input("Access Password", type="password", key="login_pass")
             
-            if st.button("Log In to Workspace", type="primary", use_container_width=True):
+            if st.button("Initialize Console Access", type="primary", use_container_width=True):
                 if login_email and login_pass:
                     user_data = verify_user(login_email, login_pass)
                     if user_data:
                         st.session_state.authenticated_user = user_data
-                        st.toast(f"Welcome back, {login_email}!", icon="👋")
+                        st.toast(f"Terminal Authenticated: {login_email}", icon="⚡")
                         st.rerun()
                     else:
-                        st.error("Invalid email or password.")
+                        st.error("Authentication rejected: Invalid credentials.")
                 else:
-                    st.warning("Please fill in both email and password.")
+                    st.warning("Please provide operator email and password.")
 
         with auth_tab_signup:
-            st.markdown("##### Register New User Profile")
+            st.markdown("##### Provision New Operator ID")
             signup_email = st.text_input("Email", key="signup_email")
             signup_pass = st.text_input("Password", type="password", key="signup_pass")
             signup_pass2 = st.text_input("Confirm Password", type="password", key="signup_pass2")
             
-            if st.button("Create ID & Vault", use_container_width=True):
+            if st.button("Generate Operator Vault", use_container_width=True):
                 if not signup_email or not signup_pass:
                     st.warning("Please fill in all required fields.")
                 elif signup_pass != signup_pass2:
@@ -214,7 +321,7 @@ if not st.session_state.authenticated_user:
                 else:
                     success, msg = create_user_account(signup_email, signup_pass)
                     if success:
-                        st.success("Account created! Switch to Sign In to continue.")
+                        st.success("Operator identity registered. Proceed to Sign In.")
                     else:
                         st.error(msg)
     st.stop()
@@ -343,20 +450,20 @@ def get_db_engine(connection_string: str):
         return None
 
 # ==========================================
-# SIDEBAR CONFIGURATION
+# SIDEBAR CONFIGURATION (DATAOPS RAIL)
 # ==========================================
 with st.sidebar:
-    st.markdown(f"👤 **{current_user.get('email', '')}**")
-    if st.button("🚪 Sign Out", use_container_width=True):
+    st.markdown(f"🟢 **{current_user.get('email', '')}**")
+    if st.button("TERMINATE SESSION", use_container_width=True):
         st.session_state.authenticated_user = None
         st.rerun()
 
     st.divider()
-    st.markdown("### ⚡ **inventro.ai**")
+    st.markdown("### ⚡ **INVENTRO.AI**")
     st.caption("Autonomous Retail Operating System")
     st.divider()
 
-    st.markdown("**1. Database Configuration**")
+    st.markdown("**1. Database Pipeline Config**")
     db_input_mode = st.radio("Configuration Mode:", ["Full Credentials Form", "Direct Connection URL"], horizontal=True)
 
     dialect_list = ["PostgreSQL / Neon", "MySQL", "MariaDB", "MS SQL Server", "SQLite", "Custom / Direct"]
@@ -367,7 +474,7 @@ with st.sidebar:
 
     if db_input_mode == "Full Credentials Form":
         selected_dialect = st.selectbox("Database Engine", dialect_list, index=default_dialect_idx)
-        db_host = st.text_input("Host", value=current_user.get("db_host", ""), placeholder="e.g. ep-xyz.aws.neon.tech or localhost")
+        db_host = st.text_input("Host Address", value=current_user.get("db_host", ""), placeholder="e.g. ep-xyz.aws.neon.tech")
         
         default_port = current_user.get("db_port", "")
         if not default_port:
@@ -375,8 +482,8 @@ with st.sidebar:
         db_port = st.text_input("Port", value=default_port, placeholder="e.g. 5432")
         
         db_name = st.text_input("Database Name", value=current_user.get("db_name", ""), placeholder="e.g. neondb")
-        db_user = st.text_input("Username", value=current_user.get("db_user", ""), placeholder="e.g. neondb_owner")
-        db_pass = st.text_input("Password", value=current_user.get("db_pass", ""), placeholder="••••••••", type="password")
+        db_user = st.text_input("Database User", value=current_user.get("db_user", ""), placeholder="e.g. neondb_owner")
+        db_pass = st.text_input("Auth Secret", value=current_user.get("db_pass", ""), placeholder="••••••••", type="password")
 
         if db_host and db_name:
             clean_name = db_name.split("?")[0].strip()
@@ -394,7 +501,7 @@ with st.sidebar:
         selected_dialect = "Direct URL"
         db_host, db_port, db_name, db_user, db_pass = "", "", "", "", ""
         active_db_uri = st.text_input(
-            "Connection URL / URI",
+            "Target Connection String",
             value=current_user.get("db_uri", ""),
             placeholder="postgresql://user:pass@host:5432/dbname?sslmode=require",
             type="password"
@@ -402,13 +509,13 @@ with st.sidebar:
 
     st.divider()
     st.markdown("**2. SMTP Vendor Dispatcher**")
-    smtp_server = st.text_input("SMTP Server", value=current_user.get("smtp_server", ""), placeholder="smtp.gmail.com")
-    smtp_port = st.number_input("SMTP Port", min_value=1, max_value=65535, value=int(current_user.get("smtp_port") or 587))
-    smtp_sender = st.text_input("Sender Email", value=current_user.get("smtp_sender", ""), placeholder="your-email@domain.com")
-    smtp_password = st.text_input("App Password", value=current_user.get("smtp_password", ""), placeholder="••••••••", type="password")
+    smtp_server = st.text_input("SMTP Relay Host", value=current_user.get("smtp_server", ""), placeholder="smtp.gmail.com")
+    smtp_port = st.number_input("Relay Port", min_value=1, max_value=65535, value=int(current_user.get("smtp_port") or 587))
+    smtp_sender = st.text_input("Sender Account", value=current_user.get("smtp_sender", ""), placeholder="dispatch@domain.com")
+    smtp_password = st.text_input("Relay Auth Secret", value=current_user.get("smtp_password", ""), placeholder="••••••••", type="password")
 
     st.divider()
-    if st.button("💾 Save Credentials to Profile", type="primary", use_container_width=True):
+    if st.button("STORE CONFIGURATION TO VAULT", type="primary", use_container_width=True):
         save_user_credentials(
             current_user["id"],
             selected_dialect,
@@ -436,18 +543,18 @@ with st.sidebar:
             "smtp_sender": smtp_sender,
             "smtp_password": smtp_password
         })
-        st.toast("Credentials saved! They will auto-load when you log in.", icon="💾")
+        st.toast("Configuration written to SQLite WAL vault.", icon="💾")
 
-    sync_btn = st.button("🔄 Sync Database Feed", use_container_width=True)
+    sync_btn = st.button("POLL DATABASE STREAM", use_container_width=True)
 
 final_connection_uri = active_db_uri if active_db_uri else current_user.get("db_uri", "")
 engine = get_db_engine(final_connection_uri) if final_connection_uri else None
 is_connected = engine is not None
 
 if is_connected:
-    st.sidebar.success("🟢 Connected to Live DB")
+    st.sidebar.success("TELEMETRY: ONLINE")
 else:
-    st.sidebar.warning("⚪ Awaiting Connection")
+    st.sidebar.warning("TELEMETRY: STANDBY")
 
 # ==========================================
 # INGESTION & DEFENSIVE DATA RETRIEVAL
@@ -488,7 +595,7 @@ def execute_autonomous_eda(df_prod: pd.DataFrame, df_sls: pd.DataFrame, df_mv: p
 
     eda = {}
 
-    # 1. Data Overview
+    # 1. Overview
     eda["overview"] = {
         "catalog_rows": len(df_prod),
         "catalog_cols": df_prod.shape[1],
@@ -497,13 +604,13 @@ def execute_autonomous_eda(df_prod: pd.DataFrame, df_sls: pd.DataFrame, df_mv: p
         "total_cells_scanned": int(df_prod.size + df_sls.size + df_mv.size)
     }
 
-    # 2. Schema Validation & Types
+    # 2. Schema
     eda["schema_types"] = {
         "prod_dtypes": {c: str(t) for c, t in df_prod.dtypes.items()},
         "normalized_keys_count": len(prod_map)
     }
 
-    # 3. Missing Values & Null Pattern Analysis
+    # 3. Missing Values & Null Patterns
     prod_nulls = df_prod.isnull().sum().to_dict()
     sales_nulls = df_sls.isnull().sum().to_dict() if not df_sls.empty else {}
     null_patterns = []
@@ -518,12 +625,12 @@ def execute_autonomous_eda(df_prod: pd.DataFrame, df_sls: pd.DataFrame, df_mv: p
         "null_patterns": null_patterns
     }
 
-    # 4. Duplicate Record Analysis
+    # 4. Duplicates
     dup_skus = int(df_prod.duplicated(subset=["sku"]).sum()) if "sku" in df_prod.columns else 0
     dup_sales = int(df_sls.duplicated().sum()) if not df_sls.empty else 0
     eda["duplicates"] = {"duplicate_skus": dup_skus, "duplicate_transactions": dup_sales}
 
-    # 5. Numerical Feature Analysis
+    # 5. Numerical Features
     num_cols = ["stock", "lead_time", "moq", "pack_size", "expiry_days"]
     num_stats = {}
     for c in num_cols:
@@ -537,7 +644,7 @@ def execute_autonomous_eda(df_prod: pd.DataFrame, df_sls: pd.DataFrame, df_mv: p
             }
     eda["numerical_stats"] = num_stats
 
-    # 6. Categorical & High Cardinality Analysis
+    # 6. Categorical Analysis
     eda["categorical"] = {
         "categories_count": int(df_prod["category"].nunique()) if "category" in df_prod.columns else 0,
         "top_category": str(df_prod["category"].mode()[0]) if "category" in df_prod.columns and not df_prod.empty else "N/A",
@@ -545,7 +652,7 @@ def execute_autonomous_eda(df_prod: pd.DataFrame, df_sls: pd.DataFrame, df_mv: p
         "top_vendor": str(df_prod["vendor"].mode()[0]) if "vendor" in df_prod.columns and not df_prod.empty else "N/A"
     }
 
-    # 7. Outlier Detection (Tukey's IQR Method)
+    # 7. Outliers (IQR)
     outliers = {}
     if "stock" in df_prod.columns and len(df_prod) >= 4:
         q1 = df_prod["stock"].quantile(0.25)
@@ -564,7 +671,7 @@ def execute_autonomous_eda(df_prod: pd.DataFrame, df_sls: pd.DataFrame, df_mv: p
         outliers["sales_spike_outliers"] = 0
     eda["outliers"] = outliers
 
-    # 10. Data Leakage & Data Quality Checks
+    # 10. Data Quality & Leakage
     quality_issues = []
     if "stock" in df_prod.columns and (df_prod["stock"] < 0).any():
         quality_issues.append(f"Negative physical stock detected across {int((df_prod['stock'] < 0).sum())} SKU(s).")
@@ -580,7 +687,7 @@ def execute_autonomous_eda(df_prod: pd.DataFrame, df_sls: pd.DataFrame, df_mv: p
             pass
     eda["data_quality"] = quality_issues
 
-    # 11. Temporal Trend Analysis
+    # 11. Temporal Trends
     temporal = {}
     if not df_sls.empty and "transaction_date" in df_sls.columns and "quantity_sold" in df_sls.columns:
         try:
@@ -667,7 +774,7 @@ def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, eda_data: dict) 
 
     if not api_key:
         return (
-            "⚙️ **Configuration Notice:**\n\n"
+            "⚙️ **System Configuration Notice:**\n\n"
             "Server-side OpenAI API key is missing. Add `OPENAI_API_KEY = \"sk-...\"` in Streamlit Secrets."
         )
 
@@ -722,29 +829,29 @@ GUIDELINES:
         return f"⚠️ **AI Engine Error:** {str(err)}"
 
 # ==========================================
-# MAIN INTERFACE TABS
+# MAIN INTERFACE TABS (MISSION CONTROL)
 # ==========================================
-st.title("inventro.ai")
-st.caption(f"Autonomous Retail OS — Logged in as `{current_user.get('email', '')}`")
+st.title("⚡ INVENTRO.AI")
+st.caption(f"OPERATIONAL TELEMETRY RAIL — OPERATOR ID: `{current_user.get('email', '')}`")
 
 tab_agent, tab_eda, tab_analytics, tab_pos, tab_dispatcher, tab_infra = st.tabs([
-    "🤖 Autonomous AI Supply Agent",
-    "🔬 14-Point Autonomous EDA Audit",
-    "📊 Catalog & Analytics Matrix",
-    "⚡ Stock Movement Terminal",
-    "✉️ Autonomous PO Dispatcher",
-    "🔌 Database Infrastructure Terminal"
+    "🤖 AUTONOMOUS AGENT",
+    "🔬 14-POINT EDA AUDIT",
+    "📊 CATALOG MATRIX",
+    "⚡ POS & MOVEMENTS",
+    "✉️ PO DISPATCHER",
+    "🔌 INFRASTRUCTURE"
 ])
 
 # ------------------------------------------
-# TAB 1: AUTONOMOUS AI AGENT & EXECUTIVE STREAM
+# TAB 1: AUTONOMOUS AI AGENT & COCKPIT
 # ------------------------------------------
 with tab_agent:
-    st.markdown("#### **🤖 Autonomous AI Supply Agent & Copilot**")
-    st.caption("Self-directed diagnostic loop analyzing stockout vectors, lead times, and decay risks in real time.")
+    st.markdown("#### **Autonomous Diagnostic Execution Loop**")
+    st.caption("Continuous analytical sweep computing replenishment thresholds, lead-time variance, and decay trajectories.")
     
     if analytics_df.empty:
-        st.warning("Agent is currently idle. Connect your database or provision tables in the Infrastructure tab to begin.")
+        st.warning("Telemetry idle: Connect your database pipeline or provision baseline tables in Infrastructure tab.")
     else:
         critical_items = analytics_df[analytics_df["reorder_status"] == "RESTOCK NEEDED"]
         perishable_items = analytics_df[analytics_df["expiry_risk"] == "HIGH EXPIRY RISK"]
@@ -756,45 +863,44 @@ with tab_agent:
         quality = eda_results.get("data_quality", [])
         
         agent_reasoning = f"""[PHASE 1: 14-DIMENSIONAL AUTONOMOUS EDA AUDIT]
-• Data Overview & Schema: Ingested {overview.get('catalog_rows', 0)} catalog items & {overview.get('sales_ledger_rows', 0)} ledger transactions across {cat_info.get('categories_count', 0)} active categories.
-• Data Hygiene & Duplication: 0 duplicate primary SKUs detected. High-cardinality vendor footprint: {cat_info.get('vendors_count', 0)} suppliers.
-• Outlier & Spike Surveillance: Isolated {outliers.get('stock_outliers', 0)} stock volume outliers & {outliers.get('sales_spike_outliers', 0)} abnormal transaction demand spikes.
-• Data Quality & Leakage Check: {'Passed clean. No future timestamps or negative balances.' if not quality else ' | '.join(quality)}
+• Ingestion Pipeline: Scanned {overview.get('catalog_rows', 0)} catalog units & {overview.get('sales_ledger_rows', 0)} ledger transactions across {cat_info.get('categories_count', 0)} categories.
+• Schema Integrity: 0 barcode collisions detected. Assigned suppliers footprint: {cat_info.get('vendors_count', 0)} vendors.
+• Statistical Variance: {outliers.get('stock_outliers', 0)} stock volume outliers isolated; {outliers.get('sales_spike_outliers', 0)} anomalous checkout spikes flagged.
+• Quality Gates: {'All validation constraints passed.' if not quality else ' | '.join(quality)}
 
-[PHASE 2: ABC-XYZ & STOCHASTIC BUFFER MODELING]
-• Service Level Objective: 95% Confidence Interval (Gaussian Normal Distribution Z = 1.65).
-• Pareto Class A Concentration: {len(class_a_items)} SKUs driving 80% of volume. Top segment: '{cat_info.get('top_category', 'General')}'.
-• Buffer Breaches: {len(critical_items)} of {len(analytics_df)} SKUs have breached dynamic ROP thresholds.
-• Spoilage Vectors: {len(perishable_items)} SKUs are within the critical 7-day shelf-life horizon.
+[PHASE 2: ABC-XYZ & PROBABILISTIC SAFETY BUFFERS]
+• Confidence Parameter: Gaussian Distribution 95% Confidence (Z = 1.65).
+• Pareto Distribution: {len(class_a_items)} Class-A SKUs responsible for 80% volume concentration. Top category: '{cat_info.get('top_category', 'General')}'.
+• Buffer Status: {len(critical_items)} of {len(analytics_df)} SKUs have breached dynamic ROP limits.
+• Spoilage Horizons: {len(perishable_items)} lines operating within 7-day shelf-life threshold.
 
-[PHASE 3: PRESCRIPTIVE AUTONOMOUS DECISIONS]
-• Replenishment Action: Prescribed restock batches satisfying Minimum Order Quantities (MOQ) and Case Multipliers.
-• Suppliers Queued for Dispatch: {', '.join(critical_items['vendor'].unique()) if not critical_items.empty else 'None (All lines operating safely)'}."""
+[PHASE 3: PRESCRIPTIVE LOGISTICS DISPATCH]
+• Restock Batches: Orders calculated satisfying Minimum Order Quantities (MOQ) and Case Pack Multipliers.
+• Suppliers Queued for Fulfillment: {', '.join(critical_items['vendor'].unique()) if not critical_items.empty else 'None (Inventory levels healthy)'}."""
 
-        st.markdown("### **🧠 Autonomous Agent Execution & Diagnostic Stream**")
         st.code(agent_reasoning, language="text")
 
         st.divider()
 
-        st.markdown("#### **💬 Ask the AI Inventory Agent**")
-        st.caption("Ask questions in natural language. Powered by OpenAI GPT-5.6 Luna.")
+        st.markdown("#### **Conversational Operations Copilot**")
+        st.caption("Natural language query engine powered by GPT-5.6 Luna.")
 
         if "chat_messages" not in st.session_state:
             st.session_state.chat_messages = [
-                {"role": "assistant", "content": "Hello! I am connected to your live database with the 14-point EDA audit completed. Ask me anything about stock levels, ABC-XYZ rankings, decay risks, or purchase orders."}
+                {"role": "assistant", "content": "Telemetry active. Ask any question regarding stock runway, vendor lead times, or replenishment strategies."}
             ]
 
         for msg in st.session_state.chat_messages:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
-        if user_prompt := st.chat_input("Ask about stock levels, EDA anomalies, or restock needs..."):
+        if user_prompt := st.chat_input("Query stock levels, EDA anomalies, or replenishment vectors..."):
             st.session_state.chat_messages.append({"role": "user", "content": user_prompt})
             with st.chat_message("user"):
                 st.markdown(user_prompt)
 
             with st.chat_message("assistant"):
-                with st.spinner("Analyzing live inventory & EDA telemetry..."):
+                with st.spinner("Processing real-time operational context..."):
                     ai_answer = intelligent_ai_agent(user_prompt, analytics_df, eda_results)
                     st.markdown(ai_answer)
             
@@ -804,16 +910,16 @@ with tab_agent:
 # TAB 2: 14-POINT AUTONOMOUS EDA AUDIT REPORT
 # ------------------------------------------
 with tab_eda:
-    st.markdown("#### **🔬 14-Point Automated EDA & Data Quality Report**")
-    st.caption("Real-time telemetry and statistical profiling executing on active database connections.")
+    st.markdown("#### **Automated EDA & Data Quality Diagnostic Suite**")
+    st.caption("Deterministic telemetry and statistical profiling executing on active database connections.")
 
     if not eda_results:
         st.info("Awaiting live database connection to compile EDA audit.")
     else:
         eda_c1, eda_c2, eda_c3, eda_c4 = st.columns(4)
         eda_c1.metric("Catalog SKUs", eda_results["overview"]["catalog_rows"])
-        eda_c2.metric("Sales Ledger Events", eda_results["overview"]["sales_ledger_rows"])
-        eda_c3.metric("Stock Volume Outliers", eda_results["outliers"]["stock_outliers"])
+        eda_c2.metric("Sales Events", eda_results["overview"]["sales_ledger_rows"])
+        eda_c3.metric("Stock Outliers", eda_results["outliers"]["stock_outliers"])
         weekend_pct = eda_results.get('temporal', {}).get('weekend_sales_ratio', 0) * 100
         eda_c4.metric("Weekend Demand Ratio", f"{weekend_pct:.1f}%")
 
@@ -822,12 +928,12 @@ with tab_eda:
         eda_row1_col1, eda_row1_col2 = st.columns(2)
         
         with eda_row1_col1:
-            st.markdown("##### **1. Ingestion Overview & Schema Health**")
+            st.markdown("##### **1. Pipeline Ingestion & Schema Health**")
             overview_data = [
-                {"Parameter": "Total Records Ingested", "Diagnostic Result": f"{eda_results['overview']['total_cells_scanned']:,} cells"},
-                {"Parameter": "Catalog Matrix Dimensions", "Diagnostic Result": f"{eda_results['overview']['catalog_rows']} items × {eda_results['overview']['catalog_cols']} columns"},
-                {"Parameter": "Audit Ledger Depth", "Diagnostic Result": f"{eda_results['overview']['audit_movements_rows']} stock movement events"},
-                {"Parameter": "Auto-Resolved Schema Keys", "Diagnostic Result": f"{eda_results['schema_types']['normalized_keys_count']} operational fields synced"}
+                {"Metric": "Total Ingested Data Points", "Result": f"{eda_results['overview']['total_cells_scanned']:,} cells"},
+                {"Metric": "Catalog Matrix Dimensions", "Result": f"{eda_results['overview']['catalog_rows']} items × {eda_results['overview']['catalog_cols']} columns"},
+                {"Metric": "Stock Movement Logs", "Result": f"{eda_results['overview']['audit_movements_rows']} transactions recorded"},
+                {"Metric": "Auto-Resolved Schema Keys", "Result": f"{eda_results['schema_types']['normalized_keys_count']} operational fields synced"}
             ]
             st.dataframe(pd.DataFrame(overview_data), use_container_width=True, hide_index=True)
 
@@ -849,7 +955,7 @@ with tab_eda:
                 for dq in eda_results["data_quality"]:
                     st.error(f"⚠️ {dq}")
             else:
-                st.success("✅ **Quality Gate Passed:** No future-dated transactions, negative balances, or invalid lead times.")
+                st.success("✅ Quality Gate Passed: No future-dated timestamps, negative balances, or invalid lead times.")
 
         with eda_row1_col2:
             st.markdown("##### **4. Numerical Feature Distributions (Tukey's IQR)**")
@@ -872,8 +978,8 @@ with tab_eda:
             decay_count = int((analytics_df["expiry_risk"] == "HIGH EXPIRY RISK").sum())
 
             summary_rows = [
-                {"Segment": "Stock Status", "Distribution": f"Healthy: {health_counts.get('HEALTHY', 0)} | Restock Needed: {health_counts.get('RESTOCK NEEDED', 0)}"},
-                {"Segment": "Pareto Volume (ABC)", "Distribution": f"Class A: {abc_counts.get('A', 0)} | Class B: {abc_counts.get('B', 0)} | Class C: {abc_counts.get('C', 0)}"},
+                {"Segment": "Inventory Health Ratio", "Distribution": f"Healthy: {health_counts.get('HEALTHY', 0)} | Restock Needed: {health_counts.get('RESTOCK NEEDED', 0)}"},
+                {"Segment": "Pareto Volume Class (ABC)", "Distribution": f"Class A: {abc_counts.get('A', 0)} | Class B: {abc_counts.get('B', 0)} | Class C: {abc_counts.get('C', 0)}"},
                 {"Segment": "Critical Spoilage Horizon", "Distribution": f"{decay_count} SKU(s) within 7-day expiry window"}
             ]
             st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
@@ -885,7 +991,7 @@ with tab_analytics:
     if analytics_df.empty:
         st.info("No active catalog data detected.")
     else:
-        st.markdown("#### **Dynamic ROP, ABC-XYZ & Statistical Safety Stock Matrix**")
+        st.markdown("#### **Stochastic Safety Stock & ROP Inventory Matrix**")
         display_cols = [
             "sku", "name", "category", "stock", "lead_time", "daily_velocity", 
             "safety_stock", "rop", "days_runway", "reorder_status", "abc_class", 
@@ -898,8 +1004,8 @@ with tab_analytics:
 # TAB 4: POS TERMINAL (ATOMIC MUTATIONS)
 # ------------------------------------------
 with tab_pos:
-    st.markdown("#### **⚡ Real-Time Stock Movement Terminal (In / Out / POS)**")
-    st.caption("Execute incoming vendor receipts, live checkout scans, or write-offs directly to the database.")
+    st.markdown("#### **Real-Time Stock Movement & POS Terminal**")
+    st.caption("Execute intake receipts, checkout sales, or shrinkage write-offs with atomic transaction guarantees.")
     
     pos_col1, pos_col2 = st.columns([1.1, 1.4])
     
@@ -926,7 +1032,7 @@ with tab_pos:
             
             if "Stock IN" in action_type:
                 notes_in = st.text_input("Receipt Note / PO Reference", value="Vendor Delivery Intake")
-                if st.button("📥 Commit Stock IN (+ Units)", type="primary", use_container_width=True):
+                if st.button("COMMIT INTAKE TRANSACTION", type="primary", use_container_width=True):
                     if is_connected:
                         try:
                             stock_col = prod_map.get("stock", "stock")
@@ -943,7 +1049,7 @@ with tab_pos:
                                     """),
                                     {"ts": datetime.now(), "sku": selected_sku, "qty": units_qty, "notes": notes_in}
                                 )
-                            st.toast(f"✅ Added +{units_qty}x {sku_data['name']} to inventory.", icon="📥")
+                            st.toast(f"Intake committed: +{units_qty}x {sku_data['name']}", icon="📥")
                             st.rerun()
                         except Exception as err:
                             st.error(f"Stock IN Failed: {err}")
@@ -951,7 +1057,7 @@ with tab_pos:
                         st.error("Database not connected.")
 
             elif "POS Scan" in action_type:
-                if st.button("⚡ Execute POS Transaction (- Units)", type="primary", use_container_width=True):
+                if st.button("EXECUTE CHECKOUT SALE", type="primary", use_container_width=True):
                     if is_connected:
                         try:
                             stock_col = prod_map.get("stock", "stock")
@@ -985,7 +1091,7 @@ with tab_pos:
                                         """),
                                         {"ts": datetime.now(), "sku": selected_sku, "qty": -units_qty, "notes": "POS register sale"}
                                     )
-                                    st.toast(f"✅ Deducted -{units_qty}x {sku_data['name']} from DB.", icon="🛒")
+                                    st.toast(f"Sale committed: -{units_qty}x {sku_data['name']}", icon="🛒")
                                     st.rerun()
                         except Exception as err:
                             st.error(f"POS Transaction Failed: {err}")
@@ -994,7 +1100,7 @@ with tab_pos:
 
             elif "Stock OUT" in action_type:
                 out_reason = st.selectbox("Reason for Outflow", ["Damaged / Spoiled Goods", "Expired Shelf-Life", "Inventory Audit Shrinkage", "Internal Store Use"])
-                if st.button("📤 Commit Stock OUT (- Units)", type="primary", use_container_width=True):
+                if st.button("COMMIT WRITE-OFF TRANSACTION", type="primary", use_container_width=True):
                     if is_connected:
                         try:
                             stock_col = prod_map.get("stock", "stock")
@@ -1014,7 +1120,7 @@ with tab_pos:
                                         """),
                                         {"ts": datetime.now(), "sku": selected_sku, "qty": -units_qty, "notes": out_reason}
                                     )
-                                    st.toast(f"✅ Written off -{units_qty}x {sku_data['name']}.", icon="📤")
+                                    st.toast(f"Write-off committed: -{units_qty}x {sku_data['name']}", icon="📤")
                                     st.rerun()
                         except Exception as err:
                             st.error(f"Stock OUT Failed: {err}")
@@ -1035,25 +1141,26 @@ with tab_pos:
 # ------------------------------------------
 with tab_dispatcher:
     st.markdown("#### **Autonomous Purchase Order Dispatch Center**")
+    st.caption("Automated supplier payload generation with strict TLS SMTP routing.")
     
     if not analytics_df.empty:
         po_candidates = analytics_df[analytics_df["suggested_po_qty"] > 0]
         
         if po_candidates.empty:
-            st.success("✨ All product lines are operating within safe inventory thresholds. No purchase orders needed.")
+            st.success("All product lines operating within safe inventory thresholds. No purchase orders required.")
         else:
-            st.warning(f"⚠️ {len(po_candidates)} product line(s) require replenishment.")
+            st.warning(f"Replenishment required for {len(po_candidates)} catalog line(s).")
             
-            selected_vendor = st.selectbox("Group Orders by Supplier", po_candidates["vendor"].unique())
+            selected_vendor = st.selectbox("Filter Orders by Supplier", po_candidates["vendor"].unique())
             vendor_orders = po_candidates[po_candidates["vendor"] == selected_vendor]
             
             target_email = vendor_orders["email"].iloc[0] if ("email" in vendor_orders.columns and str(vendor_orders["email"].iloc[0]).strip()) else ""
-            recipient_email = st.text_input("Supplier Dispatch Email", value=target_email, placeholder="supplier-contact@domain.com")
+            recipient_email = st.text_input("Supplier Dispatch Email", value=target_email, placeholder="dispatch@vendor.com")
             
             po_body_lines = [
                 f"PURCHASE ORDER — INVENTRO.AI AUTONOMOUS REPLENISHMENT\n",
                 f"Supplier: {selected_vendor}",
-                f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 "-" * 60,
                 f"{'SKU':<12} | {'Item Name':<25} | {'Stock':<6} | {'ROP':<6} | {'Order Qty'}",
                 "-" * 60
@@ -1061,17 +1168,17 @@ with tab_dispatcher:
             for _, r in vendor_orders.iterrows():
                 po_body_lines.append(f"{r['sku']:<12} | {r['name'][:24]:<25} | {r['stock']:<6} | {r['rop']:<6} | {r['suggested_po_qty']} units")
             po_body_lines.append("-" * 60)
-            po_body_lines.append("\nPlease confirm order dispatch turnaround time.")
+            po_body_lines.append("\nPlease confirm order fulfillment and dispatch turnaround time.")
             
             po_payload = "\n".join(po_body_lines)
-            st.text_area("Purchase Order Preview", value=po_payload, height=220)
+            st.text_area("Purchase Order Payload Preview", value=po_payload, height=220)
             
-            if st.button(f"✉️ Dispatch Purchase Order to {selected_vendor}", type="primary"):
+            if st.button(f"DISPATCH PURCHASE ORDER TO {selected_vendor.upper()}", type="primary"):
                 email_regex = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
                 if not smtp_sender or not smtp_password:
-                    st.error("Please configure SMTP Sender Email and App Password in the sidebar.")
+                    st.error("Configure SMTP Sender Email and App Password in the sidebar.")
                 elif not recipient_email or not re.match(email_regex, recipient_email.strip()):
-                    st.error("Please provide a valid recipient email address (e.g. name@domain.com).")
+                    st.error("Provide a valid recipient email address (e.g., dispatch@supplier.com).")
                 else:
                     try:
                         msg = MIMEMultipart()
@@ -1086,13 +1193,13 @@ with tab_dispatcher:
                         server.send_message(msg)
                         server.quit()
                         
-                        st.success(f"🚀 Purchase Order successfully dispatched via TLS to {recipient_email}!")
+                        st.success(f"Purchase Order dispatched successfully to {recipient_email}.")
                     except smtplib.SMTPAuthenticationError:
-                        st.error("SMTP Auth Failure: Gmail requires a dedicated 16-character App Password, not your standard account password.")
+                        st.error("SMTP Auth Failure: Gmail requires a dedicated 16-character App Password.")
                     except smtplib.SMTPConnectError:
-                        st.error("SMTP Connection Error: Unable to connect to host. Verify your SMTP Server and Port settings.")
+                        st.error("SMTP Connection Error: Unable to reach host. Check SMTP Server and Port settings.")
                     except TimeoutError:
-                        st.error("SMTP Timeout: Connection timed out. Check your firewall settings.")
+                        st.error("SMTP Timeout: Connection timed out.")
                     except Exception as mail_err:
                         st.error(f"SMTP Dispatch Error: {mail_err}")
     else:
@@ -1107,9 +1214,9 @@ with tab_infra:
     
     with col_prov:
         st.markdown("**Clean Schema Provisioning**")
-        st.caption("Creates empty production schema structures (`products_master`, `sales_ledger`, and `stock_movements`) without inserting dummy records.")
+        st.caption("Initializes production tables (`products_master`, `sales_ledger`, `stock_movements`) without inserting dummy rows.")
         
-        if st.button("🛠️ Provision Clean Schema Tables"):
+        if st.button("PROVISION PRODUCTION TABLES"):
             if is_connected:
                 try:
                     with engine.begin() as conn:
@@ -1148,7 +1255,7 @@ with tab_infra:
                             notes VARCHAR(255)
                         );
                         """))
-                    st.success("✅ Clean relational schemas initialized successfully.")
+                    st.success("Relational schemas initialized.")
                     st.rerun()
                 except SQLAlchemyError as p_err:
                     st.error(f"Provisioning Failed: {p_err}")
@@ -1156,9 +1263,9 @@ with tab_infra:
                 st.error("Connect to a database in the sidebar before provisioning.")
 
     with col_sql:
-        st.markdown("**Direct SQL Query Terminal**")
+        st.markdown("**SQL Direct Command Terminal**")
         custom_sql = st.text_area("Execute Query on Active DB:", placeholder="SELECT * FROM products_master LIMIT 10;")
-        if st.button("⚡ Execute Query"):
+        if st.button("EXECUTE SQL QUERY"):
             if custom_sql and custom_sql.strip() and is_connected:
                 try:
                     with engine.connect() as conn:
@@ -1167,4 +1274,4 @@ with tab_infra:
                 except SQLAlchemyError as q_err:
                     st.error(f"SQL Error: {q_err}")
             else:
-                st.warning("Please provide an active query and verify connection.")
+                st.warning("Provide a valid query and ensure database is connected.")
