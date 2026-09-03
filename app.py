@@ -6,6 +6,7 @@ import smtplib
 import sqlite3
 import hashlib
 from datetime import datetime
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -22,7 +23,7 @@ except ImportError:
     OPENAI_AVAILABLE = False
 
 # ==========================================
-# PAGE CONFIGURATION & STYLING
+# PAGE CONFIGURATION & DARK THEME
 # ==========================================
 st.set_page_config(
     page_title="inventro.ai | Autonomous Retail OS",
@@ -167,7 +168,7 @@ if "authenticated_user" not in st.session_state:
 
 if not st.session_state.authenticated_user:
     st.markdown("<h2 style='text-align: center;'>⚡ inventro.ai</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #94a3b8;'>Autonomous Retail Operating System & Inventory Intelligence</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #94a3b8;'>Autonomous Retail OS & Dynamic Inventory Intelligence</p>", unsafe_allow_html=True)
     
     auth_col1, auth_col2, auth_col3 = st.columns([1, 1.2, 1])
     with auth_col2:
@@ -188,17 +189,17 @@ if not st.session_state.authenticated_user:
                     else:
                         st.error("Invalid email or password.")
                 else:
-                    st.warning("Please provide email and password.")
+                    st.warning("Please fill in both email and password.")
 
         with auth_tab_signup:
-            st.markdown("##### Register New User Profile")
+            st.markdown("##### New Account Registration")
             signup_email = st.text_input("Email", key="signup_email")
             signup_pass = st.text_input("Password", type="password", key="signup_pass")
             signup_pass2 = st.text_input("Confirm Password", type="password", key="signup_pass2")
             
-            if st.button("Create Account & Vault", use_container_width=True):
+            if st.button("Create ID & Vault", use_container_width=True):
                 if not signup_email or not signup_pass:
-                    st.warning("Please fill in all required fields.")
+                    st.warning("Please provide email and password.")
                 elif signup_pass != signup_pass2:
                     st.error("Passwords do not match.")
                 elif len(signup_pass) < 6:
@@ -206,7 +207,7 @@ if not st.session_state.authenticated_user:
                 else:
                     success, msg = create_user_account(signup_email, signup_pass)
                     if success:
-                        st.success("Account initialized! Switch to the Sign In tab to enter your workspace.")
+                        st.success("Account created! Please switch to the Sign In tab to log in.")
                     else:
                         st.error(msg)
     st.stop()
@@ -214,7 +215,7 @@ if not st.session_state.authenticated_user:
 current_user = st.session_state.authenticated_user
 
 # ==========================================
-# DYNAMIC SCHEMA RESOLUTION ENGINE
+# DYNAMIC SCHEMA RESOLUTION & CLEANING
 # ==========================================
 COLUMN_SYNONYMS = {
     "sku": ["sku", "product_id", "productid", "item_id", "itemid", "item_code", "itemcode", "barcode", "code", "prod_id", "id"],
@@ -234,6 +235,17 @@ COLUMN_SYNONYMS = {
 def clean_str(s: str) -> str:
     return re.sub(r'[\s_\-]+', '', str(s)).lower()
 
+def clean_numeric_series(series: pd.Series, default_val=0) -> pd.Series:
+    """Strips currency symbols, commas, non-numeric artifacts, and safely casts to numeric."""
+    if series is None or series.empty:
+        return pd.Series(default_val, dtype=float)
+    cleaned = (
+        series.astype(str)
+        .str.replace(r"[^\d.-]", "", regex=True)
+        .replace("", np.nan)
+    )
+    return pd.to_numeric(cleaned, errors="coerce").fillna(default_val)
+
 def resolve_and_normalize(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     if df.empty:
         return df, {}
@@ -251,39 +263,76 @@ def resolve_and_normalize(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
                 normalized_df[canonical_key] = df[original_col]
                 break
 
-    defaults = {
-        "sku": [f"SKU_{i+1:03d}" for i in range(len(normalized_df))],
-        "name": "Item",
-        "category": "Uncategorized",
+    # Numeric hardening: prevent type crashes during math operations
+    numeric_defaults = {
         "stock": 0,
         "lead_time": 2,
         "moq": 1,
         "pack_size": 1,
-        "vendor": "Unassigned",
-        "email": "",
         "expiry_days": 30,
         "quantity_sold": 1
     }
-    for field, default_val in defaults.items():
-        if field not in normalized_df.columns:
-            normalized_df[field] = default_val
+    for col, def_val in numeric_defaults.items():
+        if col in normalized_df.columns:
+            normalized_df[col] = clean_numeric_series(normalized_df[col], def_val)
+        else:
+            normalized_df[col] = def_val
+
+    # String fallbacks
+    string_defaults = {
+        "sku": [f"SKU_{i+1:03d}" for i in range(len(normalized_df))],
+        "name": "Item",
+        "category": "Uncategorized",
+        "vendor": "Unassigned",
+        "email": ""
+    }
+    for col, def_val in string_defaults.items():
+        if col not in normalized_df.columns:
+            normalized_df[col] = def_val
+        else:
+            normalized_df[col] = normalized_df[col].fillna(def_val if isinstance(def_val, str) else "Item")
 
     return normalized_df, detected_mapping
 
 # ==========================================
-# UNIVERSAL DATABASE CONNECTION HANDLER
+# HARDENED DATABASE CONNECTION HANDLER
 # ==========================================
+def sanitize_db_uri(raw_uri: str) -> str:
+    """Normalizes connection strings, strips redundant sslmode tags, and prevents clashes."""
+    if not raw_uri or not raw_uri.strip():
+        return ""
+    
+    clean_uri = raw_uri.strip()
+    if clean_uri.startswith("postgres://"):
+        clean_uri = clean_uri.replace("postgres://", "postgresql://", 1)
+        
+    try:
+        parsed = urlparse(clean_uri)
+        query_params = parse_qs(parsed.query)
+        if "postgresql" in parsed.scheme:
+            query_params["sslmode"] = ["require"]
+        new_query = urlencode(query_params, doseq=True)
+        return urlunparse(parsed._replace(query=new_query))
+    except Exception:
+        return clean_uri
+
 @st.cache_resource(show_spinner=False)
 def get_db_engine(connection_string: str):
-    if not connection_string or not connection_string.strip():
+    sanitized_uri = sanitize_db_uri(connection_string)
+    if not sanitized_uri:
         return None
     try:
-        clean_uri = connection_string.strip()
-        clean_uri = clean_uri.replace("require?sslmode=require", "require")
-        if clean_uri.count("?sslmode=require") > 1:
-            clean_uri = clean_uri.split("?sslmode=require")[0] + "?sslmode=require"
+        connect_args = {}
+        # 15s timeout to allow cold-start serverless databases (e.g. Neon) to spin up
+        if "postgresql" in sanitized_uri:
+            connect_args = {"connect_timeout": 15}
 
-        engine = create_engine(clean_uri, pool_pre_ping=True, pool_recycle=300)
+        engine = create_engine(
+            sanitized_uri,
+            pool_pre_ping=True,
+            pool_recycle=300,
+            connect_args=connect_args
+        )
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return engine
@@ -292,7 +341,7 @@ def get_db_engine(connection_string: str):
         return None
 
 # ==========================================
-# SIDEBAR CONFIGURATION
+# SIDEBAR CONFIGURATION (DISCRETE CREDENTIALS)
 # ==========================================
 with st.sidebar:
     st.markdown(f"👤 **{current_user.get('email', '')}**")
@@ -316,6 +365,7 @@ with st.sidebar:
 
     if db_input_mode == "Full Credentials Form":
         selected_dialect = st.selectbox("Database Engine", dialect_list, index=default_dialect_idx)
+        
         db_host = st.text_input("Host", value=current_user.get("db_host", ""), placeholder="e.g. ep-xyz.aws.neon.tech or localhost")
         
         default_port = current_user.get("db_port", "")
@@ -403,7 +453,7 @@ else:
     st.sidebar.warning("⚪ Awaiting Connection")
 
 # ==========================================
-# INGESTION & AUTO-NORMALIZATION
+# INGESTION & DEFENSIVE DATA RETRIEVAL
 # ==========================================
 raw_products, raw_sales, raw_movements = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
@@ -452,10 +502,17 @@ def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.D
     matrix["daily_velocity"] = matrix["daily_velocity"].fillna(1.0).clip(lower=0.1)
     matrix["daily_volatility"] = matrix["daily_volatility"].fillna(0.5).clip(lower=0.1)
     
+    # 95% Confidence Interval (Z = 1.65)
     Z = 1.65
     matrix["safety_stock"] = np.ceil(Z * matrix["daily_volatility"] * np.sqrt(matrix["lead_time"].astype(float))).astype(int)
     matrix["rop"] = np.ceil((matrix["daily_velocity"] * matrix["lead_time"].astype(float)) + matrix["safety_stock"]).astype(int)
-    matrix["days_runway"] = np.round(matrix["stock"] / matrix["daily_velocity"], 1)
+    
+    # Defensive zero-division guard
+    matrix["days_runway"] = np.where(
+        matrix["daily_velocity"] > 0,
+        np.round(matrix["stock"] / matrix["daily_velocity"], 1),
+        999.0
+    )
     matrix["reorder_status"] = np.where(matrix["stock"] <= matrix["rop"], "RESTOCK NEEDED", "HEALTHY")
     matrix["expiry_risk"] = np.where(matrix["expiry_days"] <= 7, "HIGH EXPIRY RISK", "STABLE")
 
@@ -481,12 +538,12 @@ def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame) -> str:
 
     if not api_key:
         return (
-            "⚙️ **System Configuration Notice:**\n\n"
+            "⚙️ **Configuration Notice:**\n\n"
             "Server-side OpenAI API key is missing. Add `OPENAI_API_KEY = \"sk-...\"` in Streamlit Secrets."
         )
 
     if not OPENAI_AVAILABLE:
-        return "⚠️ `openai` is not installed. Add `openai` to your `requirements.txt`."
+        return "⚠️ `openai` library is not installed. Add `openai` to your `requirements.txt`."
 
     try:
         client = OpenAI(api_key=api_key)
@@ -506,7 +563,7 @@ CURRENT INVENTORY DATASET:
 
 GUIDELINES:
 1. Deeply understand user intent. Answer natural greetings, exact mathematical calculations, predictive scenarios, or inventory strategy questions.
-2. For stock levels, stockout risks, safety buffer math (Z=1.65), reorders, or decay, compute exact numbers directly from the dataset.
+2. For stock levels, stockout risks, safety buffer math (Z=1.65), reorders, or expiry, compute exact numbers directly from the dataset.
 3. Be concise, direct, and actionable. Use bullet points and bold formatting for scannability.
 """
 
@@ -646,6 +703,7 @@ with tab_pos:
             **Active ROP:** `{sku_data['rop']} units`  
             """)
             
+            # 1. STOCK IN
             if "Stock IN" in action_type:
                 notes_in = st.text_input("Receipt Note / PO Reference", value="Vendor Delivery Intake")
                 if st.button("📥 Commit Stock IN (+ Units)", type="primary", use_container_width=True):
@@ -672,6 +730,7 @@ with tab_pos:
                     else:
                         st.error("Database not connected.")
 
+            # 2. POS SCAN
             elif "POS Scan" in action_type:
                 if st.button("⚡ Execute POS Transaction (- Units)", type="primary", use_container_width=True):
                     if is_connected:
@@ -714,6 +773,7 @@ with tab_pos:
                     else:
                         st.error("Database not connected.")
 
+            # 3. STOCK OUT
             elif "Stock OUT" in action_type:
                 out_reason = st.selectbox("Reason for Outflow", ["Damaged / Spoiled Goods", "Expired Shelf-Life", "Inventory Audit Shrinkage", "Internal Store Use"])
                 if st.button("📤 Commit Stock OUT (- Units)", type="primary", use_container_width=True):
