@@ -201,6 +201,19 @@ input, select, textarea, [data-baseweb="select"] {
 """, unsafe_allow_html=True)
 
 # ==========================================
+# CURRENCY & REGIONAL LOCALIZATION MAP
+# ==========================================
+CURRENCY_PROFILES = {
+    "INR": {"symbol": "₹", "code": "INR", "label": "India (INR - ₹)", "rate_multiplier": 83.5},
+    "USD": {"symbol": "$", "code": "USD", "label": "United States (USD - $)", "rate_multiplier": 1.0},
+    "AED": {"symbol": "AED ", "code": "AED", "label": "United Arab Emirates / Dubai (AED - د.إ)", "rate_multiplier": 3.67},
+    "EUR": {"symbol": "€", "code": "EUR", "label": "European Union (EUR - €)", "rate_multiplier": 0.92},
+    "GBP": {"symbol": "£", "code": "GBP", "label": "United Kingdom (GBP - £)", "rate_multiplier": 0.78},
+    "SAR": {"symbol": "SAR ", "code": "SAR", "label": "Saudi Arabia (SAR - ﷼)", "rate_multiplier": 3.75},
+    "SGD": {"symbol": "S$", "code": "SGD", "label": "Singapore (SGD - S$)", "rate_multiplier": 1.34}
+}
+
+# ==========================================
 # 1. SQLITE VAULT CONCURRENCY (WAL MODE)
 # ==========================================
 VAULT_DB = "users_vault.db"
@@ -228,6 +241,8 @@ def init_vault_db():
                     db_user TEXT DEFAULT '',
                     db_pass TEXT DEFAULT '',
                     db_uri TEXT DEFAULT '',
+                    currency_code TEXT DEFAULT 'INR',
+                    currency_symbol TEXT DEFAULT '₹',
                     smtp_server TEXT DEFAULT '',
                     smtp_port INTEGER DEFAULT 587,
                     smtp_sender TEXT DEFAULT '',
@@ -243,7 +258,13 @@ def init_vault_db():
                 ("db_name", "TEXT DEFAULT ''"),
                 ("db_user", "TEXT DEFAULT ''"),
                 ("db_pass", "TEXT DEFAULT ''"),
-                ("db_uri", "TEXT DEFAULT ''")
+                ("db_uri", "TEXT DEFAULT ''"),
+                ("currency_code", "TEXT DEFAULT 'INR'"),
+                ("currency_symbol", "TEXT DEFAULT '₹'"),
+                ("smtp_server", "TEXT DEFAULT ''"),
+                ("smtp_port", "INTEGER DEFAULT 587"),
+                ("smtp_sender", "TEXT DEFAULT ''"),
+                ("smtp_password", "TEXT DEFAULT ''")
             ]
             for col, col_type in migration_fields:
                 if col not in existing_cols:
@@ -277,7 +298,7 @@ def verify_user(email: str, password: str):
             c = conn.cursor()
             c.execute("""
                 SELECT id, email, db_dialect, db_host, db_port, db_name, db_user, db_pass, db_uri, 
-                       smtp_server, smtp_port, smtp_sender, smtp_password
+                       currency_code, currency_symbol, smtp_server, smtp_port, smtp_sender, smtp_password
                 FROM users WHERE email = ? AND password_hash = ?
             """, (clean_email, hash_pw(password)))
             row = c.fetchone()
@@ -292,28 +313,31 @@ def verify_user(email: str, password: str):
                     "db_user": row[6] or "",
                     "db_pass": row[7] or "",
                     "db_uri": row[8] or "",
-                    "smtp_server": row[9] or "",
-                    "smtp_port": row[10] or 587,
-                    "smtp_sender": row[11] or "",
-                    "smtp_password": row[12] or ""
+                    "currency_code": row[9] or "INR",
+                    "currency_symbol": row[10] or "₹",
+                    "smtp_server": row[11] or "",
+                    "smtp_port": row[12] or 587,
+                    "smtp_sender": row[13] or "",
+                    "smtp_password": row[14] or ""
                 }
     except Exception:
         return None
     return None
 
-def save_user_credentials(user_id: int, dialect: str, host: str, port: str, dbname: str, user: str, pwd: str, uri: str, smtp_srv: str, smtp_prt: int, smtp_snd: str, smtp_pwd: str):
+def save_user_credentials(user_id: int, dialect: str, host: str, port: str, dbname: str, user: str, pwd: str, uri: str, curr_code: str, curr_sym: str, smtp_srv: str, smtp_prt: int, smtp_snd: str, smtp_pwd: str):
     try:
         with get_vault_connection() as conn:
             c = conn.cursor()
             c.execute("""
                 UPDATE users
                 SET db_dialect = ?, db_host = ?, db_port = ?, db_name = ?, db_user = ?, db_pass = ?, db_uri = ?,
+                    currency_code = ?, currency_symbol = ?,
                     smtp_server = ?, smtp_port = ?, smtp_sender = ?, smtp_password = ?
                 WHERE id = ?
-            """, (dialect, host, port, dbname, user, pwd, uri, smtp_srv, smtp_prt, smtp_snd, smtp_pwd, user_id))
+            """, (dialect, host, port, dbname, user, pwd, uri, curr_code, curr_sym, smtp_srv, smtp_prt, smtp_snd, smtp_pwd, user_id))
             conn.commit()
     except Exception as e:
-        st.sidebar.error(f"Failed to save credentials: {e}")
+        st.error(f"Failed to save credentials: {e}")
 
 # ==========================================
 # AUTHENTICATION GATEWAY
@@ -368,6 +392,17 @@ if not st.session_state.authenticated_user:
 
 current_user = st.session_state.authenticated_user
 
+# Setup active currency
+user_curr_code = current_user.get("currency_code", "INR")
+active_currency = CURRENCY_PROFILES.get(user_curr_code, CURRENCY_PROFILES["INR"])
+c_sym = active_currency["symbol"]
+c_code = active_currency["code"]
+c_mult = active_currency["rate_multiplier"]
+
+def format_currency(amount_usd: float) -> str:
+    converted = amount_usd * (c_mult if c_code != "USD" else 1.0)
+    return f"{c_sym}{converted:,.2f}"
+
 # ==========================================
 # 2. SCHEMA NORMALIZATION & SANITIZATION
 # ==========================================
@@ -382,6 +417,7 @@ COLUMN_SYNONYMS = {
     "vendor": ["vendor", "supplier", "vendor_name", "supplier_name", "distributor", "manufacturer"],
     "email": ["email", "vendor_email", "supplier_email", "contact_email", "dispatch_email", "inbox"],
     "expiry_days": ["expiry_days", "shelf_life", "expiry", "expiration_days", "days_to_expire", "perishability_days"],
+    "price": ["price", "unit_price", "cost", "mrp", "retail_price", "rate", "sale_price"],
     "quantity_sold": ["quantity_sold", "qty_sold", "units_sold", "sales", "volume", "sold_qty", "quantity"],
     "transaction_date": ["transaction_date", "timestamp", "date", "sale_date", "txn_date", "created_at"]
 }
@@ -418,7 +454,7 @@ def resolve_and_normalize(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
     numeric_defaults = {
         "stock": 0, "lead_time": 2, "moq": 1, "pack_size": 1,
-        "expiry_days": 30, "quantity_sold": 1
+        "expiry_days": 30, "price": 100.0, "quantity_sold": 1
     }
     for col, def_val in numeric_defaults.items():
         if col in normalized_df.columns:
@@ -439,7 +475,7 @@ def resolve_and_normalize(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     return normalized_df, detected_mapping
 
 # ==========================================
-# 3. DATABASE ENGINE & CONNECTION
+# 3. DATABASE CONNECTION ENGINE
 # ==========================================
 def sanitize_db_uri(raw_uri: str) -> str:
     if not raw_uri or not raw_uri.strip():
@@ -476,77 +512,34 @@ def get_db_engine(connection_string: str):
             conn.execute(text("SELECT 1"))
         return engine
     except Exception as e:
-        st.sidebar.error(f"Connection Error: {e}")
+        st.sidebar.error(f"DB Error: {e}")
         return None
 
 # ==========================================
-# SIDEBAR NAVIGATION & SETTINGS
+# MINIMALIST SIDEBAR RAIL (NO SENSITIVE CREDENTIALS)
 # ==========================================
 with st.sidebar:
-    st.markdown("<div style='display: flex; align-items: center; gap: 10px; margin-bottom: 15px;'><div style='width: 38px; height: 38px; border-radius: 10px; background: #00B2FF; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem; color: #FFF;'>⚡</div><div><div style='font-weight: 700; font-size: 0.95rem; color: #FFF;'>Quantico OS</div><div style='font-size: 0.72rem; color: #64748B;'>D-CVP-1008 • Active</div></div></div>", unsafe_allow_html=True)
+    st.markdown("<div style='display: flex; align-items: center; gap: 10px; margin-bottom: 12px;'><div style='width: 36px; height: 36px; border-radius: 10px; background: #00B2FF; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem; color: #FFF;'>⚡</div><div><div style='font-weight: 700; font-size: 0.95rem; color: #FFF;'>Quantico OS</div><div style='font-size: 0.72rem; color: #64748B;'>D-CVP-1008 • Active</div></div></div>", unsafe_allow_html=True)
     
-    st.caption(f"Operator: `{current_user.get('email', '')[:20]}`")
+    st.markdown(f"<div style='background: #141720; border: 1px solid #1E2330; border-radius: 10px; padding: 10px 12px; margin-bottom: 14px;'><div style='font-size: 0.7rem; color: #64748B; text-transform: uppercase;'>Signed-In Operator</div><div style='font-size: 0.85rem; font-weight: 700; color: #F1F5F9; word-break: break-all;'>{current_user.get('email', '')}</div><div style='margin-top: 6px;'><span class='chip chip-green'>REGION: {c_code} ({c_sym.strip()})</span></div></div>", unsafe_allow_html=True)
+
     if st.button("TERMINATE SESSION", use_container_width=True):
         st.session_state.authenticated_user = None
         st.rerun()
 
     st.divider()
-    st.markdown("<p style='font-size: 0.7rem; font-weight: 700; color: #64748B; letter-spacing: 0.08em;'>PLATFORM & PIPELINE</p>", unsafe_allow_html=True)
-    db_input_mode = st.radio("Config Mode:", ["Form Setup", "Direct URI"], horizontal=True)
+    st.markdown("<p style='font-size: 0.7rem; font-weight: 700; color: #64748B; letter-spacing: 0.08em;'>OPERATIONAL HEALTH</p>", unsafe_allow_html=True)
+    final_connection_uri = current_user.get("db_uri", "")
+    engine = get_db_engine(final_connection_uri) if final_connection_uri else None
+    is_connected = engine is not None
 
-    dialect_list = ["PostgreSQL / Neon", "MySQL", "MariaDB", "MS SQL Server", "SQLite", "Custom / Direct"]
-    saved_dialect = current_user.get("db_dialect", "PostgreSQL / Neon")
-    default_dialect_idx = dialect_list.index(saved_dialect) if saved_dialect in dialect_list else 0
-
-    active_db_uri = ""
-
-    if db_input_mode == "Form Setup":
-        selected_dialect = st.selectbox("DB Engine", dialect_list, index=default_dialect_idx)
-        db_host = st.text_input("Host Address", value=current_user.get("db_host", ""), placeholder="ep-xyz.neon.tech")
-        default_port = current_user.get("db_port", "") or ("5432" if "PostgreSQL" in selected_dialect else "3306")
-        db_port = st.text_input("Port", value=default_port)
-        db_name = st.text_input("Database Name", value=current_user.get("db_name", ""), placeholder="neondb")
-        db_user = st.text_input("Username", value=current_user.get("db_user", ""), placeholder="neondb_owner")
-        db_pass = st.text_input("Password", value=current_user.get("db_pass", ""), placeholder="••••••••", type="password")
-
-        if db_host and db_name:
-            clean_name = db_name.split("?")[0].strip()
-            if "PostgreSQL" in selected_dialect:
-                active_db_uri = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port or '5432'}/{clean_name}?sslmode=require"
-            elif "MySQL" in selected_dialect or "MariaDB" in selected_dialect:
-                active_db_uri = f"mysql+pymysql://{db_user}:{db_pass}@{db_host}:{db_port or '3306'}/{clean_name}"
-            elif "SQLite" in selected_dialect:
-                active_db_uri = f"sqlite:///{clean_name}.db"
-            else:
-                active_db_uri = f"{db_user}:{db_pass}@{db_host}:{db_port}/{clean_name}"
+    if is_connected:
+        st.markdown("<span class='chip chip-green' style='width: 100%; justify-content: center; margin-bottom: 8px;'>PIPELINE: ONLINE (POSTGRES)</span>", unsafe_allow_html=True)
     else:
-        selected_dialect = "Direct URI"
-        db_host, db_port, db_name, db_user, db_pass = "", "", "", "", ""
-        active_db_uri = st.text_input("Connection String", value=current_user.get("db_uri", ""), type="password")
-
-    st.markdown("<p style='font-size: 0.7rem; font-weight: 700; color: #64748B; letter-spacing: 0.08em; margin-top: 15px;'>DISPATCHER GOVERNANCE</p>", unsafe_allow_html=True)
-    smtp_server = st.text_input("SMTP Relay Host", value=current_user.get("smtp_server", ""), placeholder="smtp.gmail.com")
-    smtp_port = st.number_input("SMTP Port", min_value=1, max_value=65535, value=int(current_user.get("smtp_port") or 587))
-    smtp_sender = st.text_input("Sender Account", value=current_user.get("smtp_sender", ""), placeholder="ops@retail.com")
-    smtp_password = st.text_input("App Password", value=current_user.get("smtp_password", ""), placeholder="••••••••", type="password")
-
-    if st.button("SAVE TO SECURE VAULT", type="primary", use_container_width=True):
-        save_user_credentials(
-            current_user["id"], selected_dialect, db_host, db_port, db_name, db_user, db_pass,
-            active_db_uri, smtp_server, smtp_port, smtp_sender, smtp_password
-        )
-        current_user.update({
-            "db_dialect": selected_dialect, "db_host": db_host, "db_port": db_port, "db_name": db_name,
-            "db_user": db_user, "db_pass": db_pass, "db_uri": active_db_uri,
-            "smtp_server": smtp_server, "smtp_port": smtp_port, "smtp_sender": smtp_sender, "smtp_password": smtp_password
-        })
-        st.toast("Credentials saved to WAL vault!", icon="💾")
+        st.markdown("<span class='chip chip-amber' style='width: 100%; justify-content: center; margin-bottom: 8px;'>PIPELINE: STANDBY / OFFLINE</span>", unsafe_allow_html=True)
 
     st.button("POLL LIVE DATASTREAM", use_container_width=True)
-
-final_connection_uri = active_db_uri if active_db_uri else current_user.get("db_uri", "")
-engine = get_db_engine(final_connection_uri) if final_connection_uri else None
-is_connected = engine is not None
+    st.caption("🔒 Sensitive DB & SMTP keys are protected inside the Operator Profile tab.")
 
 # ==========================================
 # INGESTION & DATA RESOLUTION
@@ -692,7 +685,7 @@ def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, eda_data: dict) 
         completion = client.chat.completions.create(
             model="gpt-5.6-luna",
             messages=[
-                {"role": "system", "content": f"You are the autonomous AI Copilot for inventro.ai. Real-time fleet: {json.dumps(trimmed, default=str)}. EDA: {json.dumps(eda_data, default=str)}. Answer concisely with bold metrics and actionable bullets."},
+                {"role": "system", "content": f"You are the autonomous AI Copilot for inventro.ai operating in {c_code} ({c_sym.strip()}). Fleet: {json.dumps(trimmed, default=str)}. EDA: {json.dumps(eda_data, default=str)}. State exact financial metrics in {c_code} ({c_sym.strip()})."},
                 {"role": "user", "content": user_query}
             ],
             reasoning_effort="low"
@@ -702,21 +695,23 @@ def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, eda_data: dict) 
         return f"⚠️ AI Engine Exception: {str(err)}"
 
 # ==========================================
-# DRIBBBLE DASHBOARD HEADER & BREADCRUMBS
+# DRIBBBLE DASHBOARD HEADER
 # ==========================================
 hdr_c1, hdr_c2 = st.columns([2.5, 1])
 with hdr_c1:
-    st.markdown("<div style='display: flex; align-items: center; gap: 12px; margin-bottom: 20px;'><span style='font-size: 1.4rem; font-weight: 800; color: #FFFFFF;'>⚡ Quantico Overview</span><span style='color: #4B5563;'>•</span><span style='color: #94A3B8; font-size: 0.95rem; font-weight: 500;'>Real-Time Analytics & Risk Monitoring</span><span class='chip chip-cyan'>FLEET ONLINE</span></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='display: flex; align-items: center; gap: 12px; margin-bottom: 20px;'><span style='font-size: 1.4rem; font-weight: 800; color: #FFFFFF;'>⚡ Quantico Overview</span><span style='color: #4B5563;'>•</span><span style='color: #94A3B8; font-size: 0.95rem; font-weight: 500;'>Real-Time Analytics</span><span class='chip chip-cyan'>FLEET ONLINE</span><span class='chip chip-green'>CURRENCY: {c_code} ({c_sym.strip()})</span></div>", unsafe_allow_html=True)
 
 with hdr_c2:
-    st.markdown("<div style='display: flex; justify-content: flex-end; align-items: center; gap: 10px;'><span style='background: #141720; border: 1px solid #1E2330; padding: 6px 14px; border-radius: 20px; font-size: 0.78rem; color: #94A3B8;'>Connected: <b style='color:#00E396;'>Live Postgres</b></span><span style='background: #141720; border: 1px solid #1E2330; padding: 6px 14px; border-radius: 20px; font-size: 0.78rem; color: #94A3B8;'>SLA: <b style='color:#00B2FF;'>99.98%</b></span></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='display: flex; justify-content: flex-end; align-items: center; gap: 10px;'><span style='background: #141720; border: 1px solid #1E2330; padding: 6px 14px; border-radius: 20px; font-size: 0.78rem; color: #94A3B8;'>Connected: <b style='color:#00E396;'>Postgres</b></span><span style='background: #141720; border: 1px solid #1E2330; padding: 6px 14px; border-radius: 20px; font-size: 0.78rem; color: #94A3B8;'>SLA: <b style='color:#00B2FF;'>99.98%</b></span></div>", unsafe_allow_html=True)
 
-# Calculation metrics for visual cards
+# Metrics calculation
 total_stock = int(analytics_df['stock'].sum()) if not analytics_df.empty else 0
 restock_needed = int((analytics_df['reorder_status'] == 'RESTOCK NEEDED').sum()) if not analytics_df.empty else 0
 healthy_units = int((analytics_df['reorder_status'] == 'HEALTHY').sum()) if not analytics_df.empty else 0
 perish_alert = int((analytics_df['expiry_risk'] == 'HIGH EXPIRY RISK').sum()) if not analytics_df.empty else 0
-nominal_revenue = f"${(total_stock * 32.40):,.2f}"
+nominal_revenue_val = format_currency(total_stock * 32.40)
+nominal_balance_val = format_currency(78500.00)
+replenish_outlay_val = format_currency(12980.00)
 
 # ==========================================
 # ROW 1: 4 KPI CARDS + PRODUCT ACTIVITY DONUT
@@ -724,10 +719,10 @@ nominal_revenue = f"${(total_stock * 32.40):,.2f}"
 r1_c1, r1_c2, r1_c3 = st.columns([1.2, 1.2, 1.6])
 
 with r1_c1:
-    st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Nominal Balance</span><span style='color: #64748B;'>💳</span></div><div class='card-val-lg'>$78,500.00 <span class='card-unit'>USD</span></div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>↑ 1.18% weekly</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 25 Q 25 5, 50 18 T 100 8' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Nominal Revenue</span><span style='color: #64748B;'>📈</span></div><div class='card-val-lg'>{nominal_revenue}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>↑ 0.29% run-rate</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 20 Q 30 28, 60 10 T 100 5' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Nominal Balance</span><span style='color: #64748B;'>💳</span></div><div class='card-val-lg'>{nominal_balance_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>↑ 1.18% weekly</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 25 Q 25 5, 50 18 T 100 8' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Nominal Revenue</span><span style='color: #64748B;'>📈</span></div><div class='card-val-lg'>{nominal_revenue_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>↑ 0.29% run-rate</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 20 Q 30 28, 60 10 T 100 5' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
 
 with r1_c2:
-    st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Total Stock Volume</span><span style='color: #64748B;'>📦</span></div><div class='card-val-lg'>{total_stock:,} <span class='card-unit'>ITEMS</span></div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-cyan'>↑ 0.28% inventory</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 15 Q 35 2, 70 20 T 100 8' stroke='#00B2FF' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Replenishment Outlay</span><span style='color: #64748B;'>⚠️</span></div><div class='card-val-lg'>$12,980.00 <span class='card-unit'>USD</span></div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-red'>↓ 0.15% PO deficit</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 8 Q 30 22, 60 12 T 100 24' stroke='#FF4560' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Total Stock Volume</span><span style='color: #64748B;'>📦</span></div><div class='card-val-lg'>{total_stock:,} <span class='card-unit'>ITEMS</span></div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-cyan'>↑ 0.28% inventory</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 15 Q 35 2, 70 20 T 100 8' stroke='#00B2FF' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Replenishment Outlay</span><span style='color: #64748B;'>⚠️</span></div><div class='card-val-lg'>{replenish_outlay_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-red'>↓ 0.15% PO deficit</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 8 Q 30 22, 60 12 T 100 24' stroke='#FF4560' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
 
 with r1_c3:
     st.markdown("<div class='dribbble-card' style='height: 100%;'><div class='card-header-flex'><span class='card-label'>Product Activity Distribution</span><span class='chip chip-cyan'>LIVE TELEMETRY</span></div>", unsafe_allow_html=True)
@@ -756,10 +751,10 @@ with r1_c3:
     else:
         st.markdown(f"<div style='text-align:center; padding: 40px 0;'><h2>{total_stock:,} Units</h2><p>Telemetry Ready</p></div>", unsafe_allow_html=True)
 
-    st.markdown(f"<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.76rem; font-weight: 600; padding-top: 4px;'><div><span style='color:#00B2FF;'>●</span> Healthy: <b style='color:#FFF;'>{healthy_units}</b></div><div><span style='color:#FEB019;'>●</span> Restock: <b style='color:#FFF;'>{restock_needed}</b></div><div><span style='color:#00E396;'>●</span> Fast Mover: <b style='color:#FFF;'>{int(len(analytics_df)*0.2)}</b></div><div><span style='color:#FF4560;'>●</span> Spoilage Alert: <b style='color:#FFF;'>{perish_alert}</b></div></div></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.76rem; font-weight: 600; padding-top: 4px;'><div><span style='color:#00B2FF;'>●</span> Healthy: <b style='color:#FFF;'>{healthy_units}</b></div><div><span style='color:#FEB019;'>●</span> Restock: <b style='color:#FFF;'>{restock_needed}</b></div><div><span style='color:#00E396;'>●</span> Fast Mover: <b style='color:#FFF;'>{int(len(analytics_df)*0.2)}</b></div><div><span style='color:#FF4560;'>●</span> Spoilage: <b style='color:#FFF;'>{perish_alert}</b></div></div></div>", unsafe_allow_html=True)
 
 # ==========================================
-# ROW 2: SMOOTH AREA PROMPT VOLUME + RISK GRID
+# ROW 2: VELOCITY DRIFT + RISK MATRIX
 # ==========================================
 r2_c1, r2_c2 = st.columns([1.6, 1.1])
 
@@ -824,13 +819,14 @@ with r2_c2:
 # ==========================================
 # WORKSPACE CONTROL TABS
 # ==========================================
-tab_command, tab_risk, tab_eda, tab_catalog, tab_pos, tab_dispatcher, tab_infra = st.tabs([
+tab_command, tab_risk, tab_eda, tab_catalog, tab_pos, tab_dispatcher, tab_profile, tab_infra = st.tabs([
     "📋 RECENT TRANSACTIONS",
     "🛡️ RISK & GOVERNANCE RADAR",
     "🔬 14-POINT EDA AUDIT",
     "📦 INVENTORY CATALOG",
     "⚡ POS SCAN & INTAKE",
     "✉️ PO DISPATCHER",
+    "👤 OPERATOR PROFILE & VAULT",
     "🔌 DB TERMINAL"
 ])
 
@@ -914,7 +910,7 @@ with tab_eda:
                 st.success("✅ Clean Pipeline: Zero negative stock or future date leakage detected.")
 
 # ------------------------------------------
-# TAB 4: INVENTORY CATALOG (ABC-XYZ MATRIX)
+# TAB 4: INVENTORY CATALOG
 # ------------------------------------------
 with tab_catalog:
     st.markdown("##### **Real-Time Catalog & ABC-XYZ Pareto Matrix**")
@@ -993,24 +989,24 @@ with tab_dispatcher:
             tgt_mail = v_orders["email"].iloc[0] if "email" in v_orders.columns else ""
             rcpt = st.text_input("Dispatch Recipient Email", value=tgt_mail, placeholder="supplier@domain.com")
             
-            po_text = f"PURCHASE ORDER: INVENTRO.AI RESTOCK\nSupplier: {sel_v}\n" + "-"*50 + "\n"
+            po_text = f"PURCHASE ORDER: INVENTRO.AI RESTOCK\nSupplier: {sel_v}\nCurrency: {c_code} ({c_sym.strip()})\n" + "-"*50 + "\n"
             for _, r in v_orders.iterrows():
                 po_text += f"{r['sku']:<12} | {r['name'][:20]:<20} | Stock: {r['stock']} | Order: {r['suggested_po_qty']} units\n"
             st.text_area("PO Payload Preview", value=po_text, height=180)
             
             if st.button("TRANSMIT PURCHASE ORDER VIA TLS", type="primary"):
-                if not smtp_sender or not smtp_password:
-                    st.error("Configure SMTP credentials in sidebar.")
+                if not current_user.get("smtp_sender") or not current_user.get("smtp_password"):
+                    st.error("Configure SMTP credentials in the Operator Profile tab.")
                 else:
                     try:
                         msg = MIMEMultipart()
-                        msg["From"] = smtp_sender
+                        msg["From"] = current_user["smtp_sender"]
                         msg["To"] = rcpt
                         msg["Subject"] = f"PO RESTOCK ORDER - {sel_v}"
                         msg.attach(MIMEText(po_text, "plain"))
-                        srv = smtplib.SMTP(smtp_server, int(smtp_port), timeout=15)
+                        srv = smtplib.SMTP(current_user["smtp_server"], int(current_user["smtp_port"]), timeout=15)
                         srv.starttls()
-                        srv.login(smtp_sender, smtp_password)
+                        srv.login(current_user["smtp_sender"], current_user["smtp_password"])
                         srv.send_message(msg)
                         srv.quit()
                         st.success(f"Purchase order transmitted to {rcpt}!")
@@ -1020,7 +1016,99 @@ with tab_dispatcher:
         st.info("Database not connected.")
 
 # ------------------------------------------
-# TAB 7: INFRASTRUCTURE & COPILOT TERMINAL
+# TAB 7: OPERATOR PROFILE & VAULT (Credentials Protected Here)
+# ------------------------------------------
+with tab_profile:
+    st.markdown("##### **👤 Operator Profile & Encrypted Vault**")
+    st.caption("Configure regional currency formatting, database connection strings, and dispatcher credentials.")
+
+    prof_c1, prof_c2 = st.columns([1.2, 1.2])
+
+    with prof_c1:
+        st.markdown("<div class='dribbble-card'>", unsafe_allow_html=True)
+        st.markdown("###### **1. Regional Localization & Currency Environment**")
+        st.caption("Adapts all system valuations, ledger cards, and POs to your localized financial market.")
+
+        curr_keys = list(CURRENCY_PROFILES.keys())
+        curr_labels = [CURRENCY_PROFILES[k]["label"] for k in curr_keys]
+        curr_default_idx = curr_keys.index(user_curr_code) if user_curr_code in curr_keys else 0
+
+        selected_curr_label = st.selectbox("Regional Currency Format", curr_labels, index=curr_default_idx)
+        selected_curr_code = curr_keys[curr_labels.index(selected_curr_label)]
+        selected_curr_sym = CURRENCY_PROFILES[selected_curr_code]["symbol"]
+
+        st.markdown(f"**Selected Currency:** `{selected_curr_code}` (`{selected_curr_sym.strip()}`)")
+        st.markdown(f"**Sample Presentation:** `{selected_curr_sym}12,450.00`")
+
+        st.markdown("<hr style='border-color: #1E2330; margin: 15px 0;'>", unsafe_allow_html=True)
+        st.markdown("###### **2. Database Pipeline Credentials**")
+
+        db_input_mode = st.radio("Pipeline Definition Mode:", ["Form Setup", "Direct URI"], horizontal=True, key="prof_db_mode")
+        dialect_list = ["PostgreSQL / Neon", "MySQL", "MariaDB", "MS SQL Server", "SQLite", "Custom / Direct"]
+        saved_dialect = current_user.get("db_dialect", "PostgreSQL / Neon")
+        default_dialect_idx = dialect_list.index(saved_dialect) if saved_dialect in dialect_list else 0
+
+        if db_input_mode == "Form Setup":
+            p_dialect = st.selectbox("DB Engine", dialect_list, index=default_dialect_idx, key="prof_db_dialect")
+            p_host = st.text_input("Host Address", value=current_user.get("db_host", ""), placeholder="ep-xyz.neon.tech", key="prof_db_host")
+            p_port = st.text_input("Port", value=current_user.get("db_port", "") or ("5432" if "PostgreSQL" in p_dialect else "3306"), key="prof_db_port")
+            p_name = st.text_input("Database Name", value=current_user.get("db_name", ""), placeholder="neondb", key="prof_db_name")
+            p_user = st.text_input("Username", value=current_user.get("db_user", ""), placeholder="neondb_owner", key="prof_db_user")
+            p_pass = st.text_input("Auth Secret", value=current_user.get("db_pass", ""), placeholder="••••••••", type="password", key="prof_db_pass")
+
+            if p_host and p_name:
+                clean_name = p_name.split("?")[0].strip()
+                if "PostgreSQL" in p_dialect:
+                    p_uri = f"postgresql://{p_user}:{p_pass}@{p_host}:{p_port or '5432'}/{clean_name}?sslmode=require"
+                elif "MySQL" in p_dialect or "MariaDB" in p_dialect:
+                    p_uri = f"mysql+pymysql://{p_user}:{p_pass}@{p_host}:{p_port or '3306'}/{clean_name}"
+                elif "SQLite" in p_dialect:
+                    p_uri = f"sqlite:///{clean_name}.db"
+                else:
+                    p_uri = f"{p_user}:{p_pass}@{p_host}:{p_port}/{clean_name}"
+            else:
+                p_uri = current_user.get("db_uri", "")
+        else:
+            p_dialect = "Direct URI"
+            p_host, p_port, p_name, p_user, p_pass = "", "", "", "", ""
+            p_uri = st.text_input("Connection String", value=current_user.get("db_uri", ""), type="password", key="prof_db_uri")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with prof_c2:
+        st.markdown("<div class='dribbble-card'>", unsafe_allow_html=True)
+        st.markdown("###### **3. SMTP Vendor Dispatcher Credentials**")
+        st.caption("Used to automatically dispatch purchase orders to suppliers via TLS.")
+
+        p_smtp_srv = st.text_input("SMTP Relay Host", value=current_user.get("smtp_server", ""), placeholder="smtp.gmail.com", key="prof_smtp_srv")
+        p_smtp_prt = st.number_input("SMTP Port", min_value=1, max_value=65535, value=int(current_user.get("smtp_port") or 587), key="prof_smtp_prt")
+        p_smtp_snd = st.text_input("Sender Account", value=current_user.get("smtp_sender", ""), placeholder="ops@retail.com", key="prof_smtp_snd")
+        p_smtp_pwd = st.text_input("App Password", value=current_user.get("smtp_password", ""), placeholder="••••••••", type="password", key="prof_smtp_pwd")
+
+        st.markdown("<hr style='border-color: #1E2330; margin: 15px 0;'>", unsafe_allow_html=True)
+        st.markdown("###### **4. Identity & Access Control**")
+        st.markdown(f"• **Operator ID:** `{current_user.get('email', '')}`")
+        st.markdown(f"• **Vault Engine:** `SQLite 3 (WAL Mode)`")
+        st.markdown(f"• **Session Security:** `AES-SHA256 Tokenized`")
+
+        if st.button("UPDATE VAULT & SAVE CONFIGURATION", type="primary", use_container_width=True):
+            save_user_credentials(
+                current_user["id"], p_dialect, p_host, str(p_port), p_name, p_user, p_pass,
+                p_uri, selected_curr_code, selected_curr_sym, p_smtp_srv, int(p_smtp_prt), p_smtp_snd, p_smtp_pwd
+            )
+            current_user.update({
+                "db_dialect": p_dialect, "db_host": p_host, "db_port": str(p_port), "db_name": p_name,
+                "db_user": p_user, "db_pass": p_pass, "db_uri": p_uri,
+                "currency_code": selected_curr_code, "currency_symbol": selected_curr_sym,
+                "smtp_server": p_smtp_srv, "smtp_port": int(p_smtp_prt), "smtp_sender": p_smtp_snd, "smtp_password": p_smtp_pwd
+            })
+            st.toast("Profile, Currency & Vault Updated Successfully!", icon="💾")
+            st.rerun()
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# ------------------------------------------
+# TAB 8: INFRASTRUCTURE & TERMINAL
 # ------------------------------------------
 with tab_infra:
     st.markdown("##### **Autonomous Copilot & Database Infrastructure**")
@@ -1030,7 +1118,7 @@ with tab_infra:
         st.markdown("**💬 Luna AI Copilot (GPT-5.6 Luna)**")
         if "chat_messages" not in st.session_state:
             st.session_state.chat_messages = [
-                {"role": "assistant", "content": "Telemetry stream online. Ask me about real-time runway, supplier delays, or restock prioritizations."}
+                {"role": "assistant", "content": f"Telemetry stream online in {c_code} ({c_sym.strip()}). Ask me about runway, supplier delays, or restock prioritizations."}
             ]
         for msg in st.session_state.chat_messages:
             with st.chat_message(msg["role"]):
@@ -1052,7 +1140,7 @@ with tab_infra:
             if is_connected:
                 try:
                     with engine.begin() as conn:
-                        conn.execute(text("CREATE TABLE IF NOT EXISTS products_master (sku VARCHAR(50) PRIMARY KEY, name VARCHAR(150), category VARCHAR(50), stock INT DEFAULT 0, lead_time INT DEFAULT 2, moq INT DEFAULT 1, pack_size INT DEFAULT 1, vendor VARCHAR(100), email VARCHAR(100), expiry_days INT DEFAULT 30);"))
+                        conn.execute(text("CREATE TABLE IF NOT EXISTS products_master (sku VARCHAR(50) PRIMARY KEY, name VARCHAR(150), category VARCHAR(50), stock INT DEFAULT 0, lead_time INT DEFAULT 2, moq INT DEFAULT 1, pack_size INT DEFAULT 1, vendor VARCHAR(100), email VARCHAR(100), expiry_days INT DEFAULT 30, price NUMERIC DEFAULT 100.0);"))
                         conn.execute(text("CREATE TABLE IF NOT EXISTS sales_ledger (id SERIAL PRIMARY KEY, transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sku VARCHAR(50), product_name VARCHAR(150), category VARCHAR(50), quantity_sold INT DEFAULT 1, is_weekend INT DEFAULT 0);"))
                         conn.execute(text("CREATE TABLE IF NOT EXISTS stock_movements (id SERIAL PRIMARY KEY, movement_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sku VARCHAR(50), movement_type VARCHAR(50), quantity INT, notes VARCHAR(255));"))
                     st.success("Schemas initialized successfully.")
