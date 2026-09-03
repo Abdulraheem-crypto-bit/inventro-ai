@@ -14,15 +14,15 @@ import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine, text, inspect
 
-# Groq SDK for High-Speed Conversational LLM
+# OpenAI SDK for GPT-5.6 Luna
 try:
-    from groq import Groq
-    GROQ_AVAILABLE = True
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
 except ImportError:
-    GROQ_AVAILABLE = False
+    OPENAI_AVAILABLE = False
 
 # ==========================================
-# PAGE CONFIGURATION & DARK THEME
+# PAGE CONFIGURATION & STYLING
 # ==========================================
 st.set_page_config(
     page_title="inventro.ai | Autonomous Retail OS",
@@ -71,14 +71,13 @@ def init_vault_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
-            db_dialect TEXT DEFAULT 'PostgreSQL',
+            db_dialect TEXT DEFAULT 'PostgreSQL / Neon',
             db_host TEXT DEFAULT '',
             db_port TEXT DEFAULT '5432',
             db_name TEXT DEFAULT '',
             db_user TEXT DEFAULT '',
             db_pass TEXT DEFAULT '',
             db_uri TEXT DEFAULT '',
-            groq_api_key TEXT DEFAULT '',
             smtp_server TEXT DEFAULT '',
             smtp_port INTEGER DEFAULT 587,
             smtp_sender TEXT DEFAULT '',
@@ -86,15 +85,15 @@ def init_vault_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    # Automatic migration if upgrading existing database
     existing_cols = [row[1] for row in c.execute("PRAGMA table_info(users)").fetchall()]
     migration_fields = [
-        ("db_dialect", "TEXT DEFAULT 'PostgreSQL'"),
+        ("db_dialect", "TEXT DEFAULT 'PostgreSQL / Neon'"),
         ("db_host", "TEXT DEFAULT ''"),
         ("db_port", "TEXT DEFAULT '5432'"),
         ("db_name", "TEXT DEFAULT ''"),
         ("db_user", "TEXT DEFAULT ''"),
-        ("db_pass", "TEXT DEFAULT ''")
+        ("db_pass", "TEXT DEFAULT ''"),
+        ("db_uri", "TEXT DEFAULT ''")
     ]
     for col, col_type in migration_fields:
         if col not in existing_cols:
@@ -125,7 +124,7 @@ def verify_user(email: str, password: str):
     c = conn.cursor()
     c.execute("""
         SELECT id, email, db_dialect, db_host, db_port, db_name, db_user, db_pass, db_uri, 
-               groq_api_key, smtp_server, smtp_port, smtp_sender, smtp_password
+               smtp_server, smtp_port, smtp_sender, smtp_password
         FROM users WHERE email = ? AND password_hash = ?
     """, (email.strip().lower(), hash_pw(password)))
     row = c.fetchone()
@@ -134,30 +133,29 @@ def verify_user(email: str, password: str):
         return {
             "id": row[0],
             "email": row[1],
-            "db_dialect": row[2] or "PostgreSQL",
+            "db_dialect": row[2] or "PostgreSQL / Neon",
             "db_host": row[3] or "",
             "db_port": row[4] or "5432",
             "db_name": row[5] or "",
             "db_user": row[6] or "",
             "db_pass": row[7] or "",
             "db_uri": row[8] or "",
-            "groq_api_key": row[9] or "",
-            "smtp_server": row[10] or "",
-            "smtp_port": row[11] or 587,
-            "smtp_sender": row[12] or "",
-            "smtp_password": row[13] or ""
+            "smtp_server": row[9] or "",
+            "smtp_port": row[10] or 587,
+            "smtp_sender": row[11] or "",
+            "smtp_password": row[12] or ""
         }
     return None
 
-def save_user_credentials(user_id: int, dialect: str, host: str, port: str, dbname: str, user: str, pwd: str, uri: str, groq_key: str, smtp_srv: str, smtp_prt: int, smtp_snd: str, smtp_pwd: str):
+def save_user_credentials(user_id: int, dialect: str, host: str, port: str, dbname: str, user: str, pwd: str, uri: str, smtp_srv: str, smtp_prt: int, smtp_snd: str, smtp_pwd: str):
     conn = sqlite3.connect(VAULT_DB)
     c = conn.cursor()
     c.execute("""
         UPDATE users
         SET db_dialect = ?, db_host = ?, db_port = ?, db_name = ?, db_user = ?, db_pass = ?, db_uri = ?,
-            groq_api_key = ?, smtp_server = ?, smtp_port = ?, smtp_sender = ?, smtp_password = ?
+            smtp_server = ?, smtp_port = ?, smtp_sender = ?, smtp_password = ?
         WHERE id = ?
-    """, (dialect, host, port, dbname, user, pwd, uri, groq_key, smtp_srv, smtp_prt, smtp_snd, smtp_pwd, user_id))
+    """, (dialect, host, port, dbname, user, pwd, uri, smtp_srv, smtp_prt, smtp_snd, smtp_pwd, user_id))
     conn.commit()
     conn.close()
 
@@ -169,7 +167,7 @@ if "authenticated_user" not in st.session_state:
 
 if not st.session_state.authenticated_user:
     st.markdown("<h2 style='text-align: center;'>⚡ inventro.ai</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #94a3b8;'>Autonomous Retail OS & Intelligence Portal</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #94a3b8;'>Autonomous Retail Operating System & Inventory Intelligence</p>", unsafe_allow_html=True)
     
     auth_col1, auth_col2, auth_col3 = st.columns([1, 1.2, 1])
     with auth_col2:
@@ -190,17 +188,17 @@ if not st.session_state.authenticated_user:
                     else:
                         st.error("Invalid email or password.")
                 else:
-                    st.warning("Please fill in both email and password.")
+                    st.warning("Please provide email and password.")
 
         with auth_tab_signup:
-            st.markdown("##### New Account Registration")
+            st.markdown("##### Register New User Profile")
             signup_email = st.text_input("Email", key="signup_email")
             signup_pass = st.text_input("Password", type="password", key="signup_pass")
             signup_pass2 = st.text_input("Confirm Password", type="password", key="signup_pass2")
             
-            if st.button("Create ID & Vault", use_container_width=True):
+            if st.button("Create Account & Vault", use_container_width=True):
                 if not signup_email or not signup_pass:
-                    st.warning("Please provide email and password.")
+                    st.warning("Please fill in all required fields.")
                 elif signup_pass != signup_pass2:
                     st.error("Passwords do not match.")
                 elif len(signup_pass) < 6:
@@ -208,12 +206,11 @@ if not st.session_state.authenticated_user:
                 else:
                     success, msg = create_user_account(signup_email, signup_pass)
                     if success:
-                        st.success("Account created! Please switch to the Sign In tab to log in.")
+                        st.success("Account initialized! Switch to the Sign In tab to enter your workspace.")
                     else:
                         st.error(msg)
     st.stop()
 
-# Active logged in session
 current_user = st.session_state.authenticated_user
 
 # ==========================================
@@ -295,10 +292,10 @@ def get_db_engine(connection_string: str):
         return None
 
 # ==========================================
-# SIDEBAR CONFIGURATION (DISCRETE CREDENTIALS)
+# SIDEBAR CONFIGURATION
 # ==========================================
 with st.sidebar:
-    st.markdown(f"👤 **{current_user['email']}**")
+    st.markdown(f"👤 **{current_user.get('email', '')}**")
     if st.button("🚪 Sign Out", use_container_width=True):
         st.session_state.authenticated_user = None
         st.rerun()
@@ -312,34 +309,29 @@ with st.sidebar:
     db_input_mode = st.radio("Configuration Mode:", ["Full Credentials Form", "Direct Connection URL"], horizontal=True)
 
     dialect_list = ["PostgreSQL / Neon", "MySQL", "MariaDB", "MS SQL Server", "SQLite", "Custom / Direct"]
-    default_dialect_idx = 0
-    if current_user["db_dialect"] in dialect_list:
-        default_dialect_idx = dialect_list.index(current_user["db_dialect"])
+    saved_dialect = current_user.get("db_dialect", "PostgreSQL / Neon")
+    default_dialect_idx = dialect_list.index(saved_dialect) if saved_dialect in dialect_list else 0
 
     active_db_uri = ""
 
     if db_input_mode == "Full Credentials Form":
         selected_dialect = st.selectbox("Database Engine", dialect_list, index=default_dialect_idx)
+        db_host = st.text_input("Host", value=current_user.get("db_host", ""), placeholder="e.g. ep-xyz.aws.neon.tech or localhost")
         
-        db_host = st.text_input("Host", value=current_user["db_host"], placeholder="e.g. ep-xyz.aws.neon.tech or localhost")
-        
-        default_port = current_user["db_port"]
+        default_port = current_user.get("db_port", "")
         if not default_port:
             default_port = "5432" if "PostgreSQL" in selected_dialect else ("3306" if "MySQL" in selected_dialect or "MariaDB" in selected_dialect else ("1433" if "SQL Server" in selected_dialect else ""))
         db_port = st.text_input("Port", value=default_port, placeholder="e.g. 5432")
         
-        db_name = st.text_input("Database Name", value=current_user["db_name"], placeholder="e.g. neondb")
-        db_user = st.text_input("Username", value=current_user["db_user"], placeholder="e.g. neondb_owner")
-        db_pass = st.text_input("Password", value=current_user["db_pass"], placeholder="••••••••", type="password")
+        db_name = st.text_input("Database Name", value=current_user.get("db_name", ""), placeholder="e.g. neondb")
+        db_user = st.text_input("Username", value=current_user.get("db_user", ""), placeholder="e.g. neondb_owner")
+        db_pass = st.text_input("Password", value=current_user.get("db_pass", ""), placeholder="••••••••", type="password")
 
-        # Dynamically build URI without database type restrictions
         if db_host and db_name:
             clean_name = db_name.split("?")[0].strip()
             if "PostgreSQL" in selected_dialect:
                 active_db_uri = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port or '5432'}/{clean_name}?sslmode=require"
-            elif "MySQL" in selected_dialect:
-                active_db_uri = f"mysql+pymysql://{db_user}:{db_pass}@{db_host}:{db_port or '3306'}/{clean_name}"
-            elif "MariaDB" in selected_dialect:
+            elif "MySQL" in selected_dialect or "MariaDB" in selected_dialect:
                 active_db_uri = f"mysql+pymysql://{db_user}:{db_pass}@{db_host}:{db_port or '3306'}/{clean_name}"
             elif "SQL Server" in selected_dialect:
                 active_db_uri = f"mssql+pyodbc://{db_user}:{db_pass}@{db_host}:{db_port or '1433'}/{clean_name}?driver=ODBC+Driver+17+for+SQL+Server"
@@ -352,27 +344,21 @@ with st.sidebar:
         db_host, db_port, db_name, db_user, db_pass = "", "", "", "", ""
         active_db_uri = st.text_input(
             "Connection URL / URI",
-            value=current_user["db_uri"],
+            value=current_user.get("db_uri", ""),
             placeholder="postgresql://user:pass@host:5432/dbname?sslmode=require",
             type="password"
         )
 
     st.divider()
-    st.markdown("**2. AI Engine (Groq / Llama 3.3)**")
-    groq_key_input = st.text_input(
-        "Groq API Key",
-        value=current_user["groq_api_key"],
-        placeholder="gsk_...",
-        type="password",
-        help="Get a free key from https://console.groq.com/keys"
-    )
+    st.markdown("**2. AI Engine**")
+    st.info("⚡ Powered by OpenAI **GPT-5.6 Luna** (`reasoning_effort='low'` via Streamlit Secrets)")
 
     st.divider()
     st.markdown("**3. SMTP Vendor Dispatcher**")
-    smtp_server = st.text_input("SMTP Server", value=current_user["smtp_server"], placeholder="smtp.gmail.com")
-    smtp_port = st.number_input("SMTP Port", min_value=1, max_value=65535, value=int(current_user["smtp_port"] or 587))
-    smtp_sender = st.text_input("Sender Email", value=current_user["smtp_sender"], placeholder="your-email@domain.com")
-    smtp_password = st.text_input("App Password", value=current_user["smtp_password"], placeholder="••••••••", type="password")
+    smtp_server = st.text_input("SMTP Server", value=current_user.get("smtp_server", ""), placeholder="smtp.gmail.com")
+    smtp_port = st.number_input("SMTP Port", min_value=1, max_value=65535, value=int(current_user.get("smtp_port") or 587))
+    smtp_sender = st.text_input("Sender Email", value=current_user.get("smtp_sender", ""), placeholder="your-email@domain.com")
+    smtp_password = st.text_input("App Password", value=current_user.get("smtp_password", ""), placeholder="••••••••", type="password")
 
     st.divider()
     if st.button("💾 Save Credentials to Profile", type="primary", use_container_width=True):
@@ -385,7 +371,6 @@ with st.sidebar:
             db_user,
             db_pass,
             active_db_uri,
-            groq_key_input,
             smtp_server,
             smtp_port,
             smtp_sender,
@@ -399,7 +384,6 @@ with st.sidebar:
             "db_user": db_user,
             "db_pass": db_pass,
             "db_uri": active_db_uri,
-            "groq_api_key": groq_key_input,
             "smtp_server": smtp_server,
             "smtp_port": smtp_port,
             "smtp_sender": smtp_sender,
@@ -409,8 +393,7 @@ with st.sidebar:
 
     sync_btn = st.button("🔄 Sync Database Feed", use_container_width=True)
 
-# Connection resolution
-final_connection_uri = active_db_uri if active_db_uri else current_user["db_uri"]
+final_connection_uri = active_db_uri if active_db_uri else current_user.get("db_uri", "")
 engine = get_db_engine(final_connection_uri) if final_connection_uri else None
 is_connected = engine is not None
 
@@ -469,7 +452,6 @@ def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.D
     matrix["daily_velocity"] = matrix["daily_velocity"].fillna(1.0).clip(lower=0.1)
     matrix["daily_volatility"] = matrix["daily_volatility"].fillna(0.5).clip(lower=0.1)
     
-    # Gaussian 95% Confidence (Z = 1.65)
     Z = 1.65
     matrix["safety_stock"] = np.ceil(Z * matrix["daily_volatility"] * np.sqrt(matrix["lead_time"].astype(float))).astype(int)
     matrix["rop"] = np.ceil((matrix["daily_velocity"] * matrix["lead_time"].astype(float)) + matrix["safety_stock"]).astype(int)
@@ -491,24 +473,23 @@ def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.D
 analytics_df = compute_analytics(df_products, df_sales)
 
 # ==========================================
-# INTELLIGENT AI AGENT ENGINE (GROQ / LLAMA 3.3)
+# INTELLIGENT AI AGENT (OPENAI GPT-5.6 LUNA)
 # ==========================================
-def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, custom_key: str) -> str:
-    """Uses Groq Llama 3.3 70B to understand and reason over live inventory data."""
-    active_key = custom_key.strip() if custom_key else st.secrets.get("GROQ_API_KEY", os.environ.get("GROQ_API_KEY", ""))
+def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame) -> str:
+    """Uses GPT-5.6 Luna with low reasoning effort via server-side OpenAI key."""
+    api_key = st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
 
-    if not active_key:
+    if not api_key:
         return (
-            "🔑 **Groq API Key Required:**\n\n"
-            "Please paste your free Groq API key in the sidebar under **'2. AI Engine (Groq / Llama 3.3)'**.\n"
-            "*Get a free key in 30 seconds at [console.groq.com/keys](https://console.groq.com/keys).*"
+            "⚙️ **System Configuration Notice:**\n\n"
+            "Server-side OpenAI API key is missing. Add `OPENAI_API_KEY = \"sk-...\"` in Streamlit Secrets."
         )
 
-    if not GROQ_AVAILABLE:
-        return "⚠️ `groq` is not installed. Add `groq` to your `requirements.txt`."
+    if not OPENAI_AVAILABLE:
+        return "⚠️ `openai` is not installed. Add `openai` to your `requirements.txt`."
 
     try:
-        client = Groq(api_key=active_key)
+        client = OpenAI(api_key=api_key)
 
         data_context = matrix[[
             "sku", "name", "category", "stock", "lead_time", 
@@ -524,29 +505,28 @@ CURRENT INVENTORY DATASET:
 {json.dumps(data_context, default=str)}
 
 GUIDELINES:
-1. Deeply understand user intent. Answer natural greetings, exact mathematical lookups, scenarios, or vendor logistics.
-2. For stock levels, stockout risks, safety buffer math (Z=1.65), reorders, or expiry, calculate exact numbers from the dataset.
-3. Be concise, direct, and actionable. Use bullet points and bold formatting for clarity.
+1. Deeply understand user intent. Answer natural greetings, exact mathematical calculations, predictive scenarios, or inventory strategy questions.
+2. For stock levels, stockout risks, safety buffer math (Z=1.65), reorders, or decay, compute exact numbers directly from the dataset.
+3. Be concise, direct, and actionable. Use bullet points and bold formatting for scannability.
 """
 
-        chat_completion = client.chat.completions.create(
+        completion = client.chat.completions.create(
+            model="gpt-5.6-luna",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_query}
             ],
-            model="llama-3.3-70b-versatile",
-            temperature=0.2,
-            max_tokens=800
+            reasoning_effort="low"
         )
-        return chat_completion.choices[0].message.content
+        return completion.choices[0].message.content
     except Exception as err:
-        return f"⚠️ **AI Engine Error:** {str(err)}\n\nPlease ensure your Groq key is valid at [console.groq.com](https://console.groq.com)."
+        return f"⚠️ **AI Engine Error:** {str(err)}"
 
 # ==========================================
 # MAIN INTERFACE TABS
 # ==========================================
 st.title("inventro.ai")
-st.caption(f"Autonomous Retail OS — Logged in as `{current_user['email']}`")
+st.caption(f"Autonomous Retail OS — Logged in as `{current_user.get('email', '')}`")
 
 tab_agent, tab_analytics, tab_pos, tab_dispatcher, tab_infra = st.tabs([
     "🤖 Autonomous AI Supply Agent",
@@ -560,7 +540,7 @@ tab_agent, tab_analytics, tab_pos, tab_dispatcher, tab_infra = st.tabs([
 # TAB 1: AUTONOMOUS AI AGENT & CHATBOT
 # ------------------------------------------
 with tab_agent:
-    st.markdown("#### **🤖 Autonomous AI Supply Agent & Intelligent Copilot**")
+    st.markdown("#### **🤖 Autonomous AI Supply Agent & Copilot (GPT-5.6 Luna)**")
     st.caption("Self-directed diagnostic loop analyzing stockout vectors, lead times, and decay risks in real time.")
     
     if analytics_df.empty:
@@ -569,7 +549,6 @@ with tab_agent:
         critical_items = analytics_df[analytics_df["reorder_status"] == "RESTOCK NEEDED"]
         perishable_items = analytics_df[analytics_df["expiry_risk"] == "HIGH EXPIRY RISK"]
         
-        # Autonomous EDA Diagnostics
         missing_cells = raw_products.isnull().sum().sum() + raw_sales.isnull().sum().sum()
         total_cells = (raw_products.size + raw_sales.size) or 1
         completeness = round(((total_cells - missing_cells) / total_cells) * 100, 2)
@@ -601,13 +580,12 @@ with tab_agent:
 
         st.divider()
 
-        # Conversational Chatbot Interface
         st.markdown("#### **💬 Ask the AI Inventory Agent**")
-        st.caption("Ask questions in natural language. Powered by Groq Llama 3.3 70B.")
+        st.caption("Ask questions in natural language. Powered by OpenAI GPT-5.6 Luna.")
 
         if "chat_messages" not in st.session_state:
             st.session_state.chat_messages = [
-                {"role": "assistant", "content": "Hello! I am connected to your live database. Ask me anything about stockout risks, demand forecasts, expirations, or vendor purchase orders."}
+                {"role": "assistant", "content": "Hello! I am connected to your live database. Ask me anything about stock levels, purchase orders, expirations, or sales velocity."}
             ]
 
         for msg in st.session_state.chat_messages:
@@ -621,7 +599,7 @@ with tab_agent:
 
             with st.chat_message("assistant"):
                 with st.spinner("Analyzing live inventory..."):
-                    ai_answer = intelligent_ai_agent(user_prompt, analytics_df, groq_key_input)
+                    ai_answer = intelligent_ai_agent(user_prompt, analytics_df)
                     st.markdown(ai_answer)
             
             st.session_state.chat_messages.append({"role": "assistant", "content": ai_answer})
@@ -668,7 +646,6 @@ with tab_pos:
             **Active ROP:** `{sku_data['rop']} units`  
             """)
             
-            # 1. STOCK IN
             if "Stock IN" in action_type:
                 notes_in = st.text_input("Receipt Note / PO Reference", value="Vendor Delivery Intake")
                 if st.button("📥 Commit Stock IN (+ Units)", type="primary", use_container_width=True):
@@ -695,7 +672,6 @@ with tab_pos:
                     else:
                         st.error("Database not connected.")
 
-            # 2. POS CHECKOUT SCAN
             elif "POS Scan" in action_type:
                 if st.button("⚡ Execute POS Transaction (- Units)", type="primary", use_container_width=True):
                     if is_connected:
@@ -738,7 +714,6 @@ with tab_pos:
                     else:
                         st.error("Database not connected.")
 
-            # 3. STOCK OUT
             elif "Stock OUT" in action_type:
                 out_reason = st.selectbox("Reason for Outflow", ["Damaged / Spoiled Goods", "Expired Shelf-Life", "Inventory Audit Shrinkage", "Internal Store Use"])
                 if st.button("📤 Commit Stock OUT (- Units)", type="primary", use_container_width=True):
