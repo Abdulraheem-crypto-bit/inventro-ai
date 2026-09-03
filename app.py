@@ -146,13 +146,14 @@ code, pre, .stCode {
 
 .stButton > button {
     font-family: 'Plus Jakarta Sans', sans-serif !important;
-    font-size: 0.8rem !important;
+    font-size: 0.82rem !important;
     font-weight: 700 !important;
     border-radius: 10px !important;
     border: 1px solid #282E3E !important;
     background: #191D28 !important;
     color: #F1F5F9 !important;
     transition: all 0.2s ease !important;
+    margin-bottom: 2px !important;
 }
 .stButton > button:hover {
     border-color: #00B2FF !important;
@@ -162,6 +163,7 @@ code, pre, .stCode {
     background: #0284C7 !important;
     border-color: #00B2FF !important;
     color: #FFFFFF !important;
+    box-shadow: 0 0 12px rgba(0, 178, 255, 0.25) !important;
 }
 
 input, select, textarea, [data-baseweb="select"] {
@@ -181,7 +183,7 @@ input, select, textarea, [data-baseweb="select"] {
 """, unsafe_allow_html=True)
 
 # ==========================================
-# CURRENCY & REGIONAL LOCALIZATION
+# CURRENCY LOCALIZATION DICTIONARY
 # ==========================================
 CURRENCY_PROFILES = {
     "INR": {"symbol": "₹", "code": "INR", "label": "India (INR - ₹)", "rate_multiplier": 83.5},
@@ -383,9 +385,9 @@ def format_currency(amount_usd: float) -> str:
     converted = amount_usd * (c_mult if c_code != "USD" else 1.0)
     return f"{c_sym}{converted:,.2f}"
 
-# Navigation State
-if "right_nav_tab" not in st.session_state:
-    st.session_state.right_nav_tab = "recent_tx"
+# Navigation State: Defaults to Overview Dashboard
+if "active_page" not in st.session_state:
+    st.session_state.active_page = "dashboard"
 
 # ==========================================
 # 2. SCHEMA NORMALIZATION & SANITIZATION
@@ -500,19 +502,50 @@ def get_db_engine(connection_string: str):
         return None
 
 # ==========================================
-# MINIMALIST SIDEBAR RAIL
+# LEFT COLLAPSIBLE SIDEBAR: PAGE NAVIGATION
 # ==========================================
 with st.sidebar:
-    st.markdown("<div style='display: flex; align-items: center; gap: 10px; margin-bottom: 12px;'><div style='width: 36px; height: 36px; border-radius: 10px; background: #00B2FF; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem; color: #FFF;'>⚡</div><div><div style='font-weight: 700; font-size: 0.95rem; color: #FFF;'>Quantico OS</div><div style='font-size: 0.72rem; color: #64748B;'>D-CVP-1008 • Active</div></div></div>", unsafe_allow_html=True)
+    st.markdown("""
+        <div style='display: flex; align-items: center; gap: 10px; margin-bottom: 12px;'>
+            <div style='width: 36px; height: 36px; border-radius: 10px; background: #00B2FF; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem; color: #FFF;'>⚡</div>
+            <div>
+                <div style='font-weight: 700; font-size: 0.95rem; color: #FFF;'>Quantico OS</div>
+                <div style='font-size: 0.72rem; color: #64748B;'>D-CVP-1008 • Active</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
-    st.markdown(f"<div style='background: #141720; border: 1px solid #1E2330; border-radius: 10px; padding: 10px 12px; margin-bottom: 14px;'><div style='font-size: 0.7rem; color: #64748B; text-transform: uppercase;'>Signed-In Operator</div><div style='font-size: 0.85rem; font-weight: 700; color: #F1F5F9; word-break: break-all;'>{current_user.get('email', '')}</div><div style='margin-top: 6px;'><span class='chip chip-green'>REGION: {c_code} ({c_sym.strip()})</span></div></div>", unsafe_allow_html=True)
+    st.markdown(f"""
+        <div style='background: #141720; border: 1px solid #1E2330; border-radius: 10px; padding: 10px 12px; margin-bottom: 14px;'>
+            <div style='font-size: 0.68rem; color: #64748B; text-transform: uppercase;'>Signed-In Operator</div>
+            <div style='font-size: 0.82rem; font-weight: 700; color: #F1F5F9; word-break: break-all;'>{current_user.get('email', '')}</div>
+            <div style='margin-top: 6px;'><span class='chip chip-green'>REGION: {c_code} ({c_sym.strip()})</span></div>
+        </div>
+    """, unsafe_allow_html=True)
 
-    if st.button("TERMINATE SESSION", use_container_width=True):
-        st.session_state.authenticated_user = None
-        st.rerun()
+    st.markdown("<p style='font-size: 0.7rem; font-weight: 800; color: #8E9BAE; letter-spacing: 0.08em; margin-bottom: 6px;'>NAVIGATION PAGES</p>", unsafe_allow_html=True)
+
+    # All requested pages listed vertically one after another
+    PAGES_LIST = [
+        ("📊 Dashboard Overview", "dashboard"),
+        ("👤 Profile & Vault", "profile"),
+        ("📋 Recent Transactions", "recent_tx"),
+        ("🔬 Data Report (EDA)", "eda_report"),
+        ("📦 Inventory Catalog", "catalog"),
+        ("🛡️ Risk & Governance", "risk_gov"),
+        ("⚡ POS Scan & Intake", "pos_scan"),
+        ("✉️ PO Dispatch", "po_dispatch"),
+        ("🔌 DB Terminal", "db_terminal")
+    ]
+
+    for label, page_id in PAGES_LIST:
+        is_active = (st.session_state.active_page == page_id)
+        btn_type = "primary" if is_active else "secondary"
+        if st.button(label, key=f"side_nav_{page_id}", type=btn_type, use_container_width=True):
+            st.session_state.active_page = page_id
+            st.rerun()
 
     st.divider()
-    st.markdown("<p style='font-size: 0.7rem; font-weight: 700; color: #64748B; letter-spacing: 0.08em;'>OPERATIONAL HEALTH</p>", unsafe_allow_html=True)
     final_connection_uri = current_user.get("db_uri", "")
     engine = get_db_engine(final_connection_uri) if final_connection_uri else None
     is_connected = engine is not None
@@ -522,7 +555,9 @@ with st.sidebar:
     else:
         st.markdown("<span class='chip chip-amber' style='width: 100%; justify-content: center; margin-bottom: 8px;'>PIPELINE: STANDBY / OFFLINE</span>", unsafe_allow_html=True)
 
-    st.button("POLL LIVE DATASTREAM", use_container_width=True)
+    if st.button("TERMINATE SESSION", use_container_width=True):
+        st.session_state.authenticated_user = None
+        st.rerun()
 
 # ==========================================
 # INGESTION & DATA RESOLUTION
@@ -580,7 +615,7 @@ def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.D
     matrix["reorder_status"] = np.where(matrix["stock"] <= matrix["rop"], "RESTOCK NEEDED", "HEALTHY")
     matrix["expiry_risk"] = np.where(matrix["expiry_days"] <= 7, "HIGH EXPIRY RISK", "STABLE")
 
-    # ABC Classification
+    # ABC Pareto
     matrix = matrix.sort_values(by="total_sold", ascending=False)
     cum_sales = matrix["total_sold"].cumsum()
     total_sales_sum = matrix["total_sold"].sum() or 1.0
@@ -668,7 +703,7 @@ def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, eda_data: dict) 
         completion = client.chat.completions.create(
             model="gpt-5.6-luna",
             messages=[
-                {"role": "system", "content": f"You are the autonomous AI Copilot for inventro.ai operating in {c_code} ({c_sym.strip()}). Fleet: {json.dumps(trimmed, default=str)}. EDA: {json.dumps(eda_data, default=str)}. State exact financial metrics in {c_code} ({c_sym.strip()})."},
+                {"role": "system", "content": f"You are the autonomous AI Copilot for inventro.ai operating in {c_code} ({c_sym.strip()}). Fleet: {json.dumps(trimmed, default=str)}. EDA: {json.dumps(eda_data, default=str)}. Answer concisely with bold metrics and actionable bullets."},
                 {"role": "user", "content": user_query}
             ],
             reasoning_effort="low"
@@ -676,16 +711,6 @@ def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, eda_data: dict) 
         return completion.choices[0].message.content
     except Exception as err:
         return f"⚠️ AI Engine Exception: {str(err)}"
-
-# ==========================================
-# DRIBBBLE DASHBOARD HEADER
-# ==========================================
-hdr_c1, hdr_c2 = st.columns([2.5, 1])
-with hdr_c1:
-    st.markdown(f"<div style='display: flex; align-items: center; gap: 12px; margin-bottom: 20px;'><span style='font-size: 1.4rem; font-weight: 800; color: #FFFFFF;'>⚡ Quantico Overview</span><span style='color: #4B5563;'>•</span><span style='color: #94A3B8; font-size: 0.95rem; font-weight: 500;'>Real-Time Analytics</span><span class='chip chip-cyan'>FLEET ONLINE</span><span class='chip chip-green'>CURRENCY: {c_code} ({c_sym.strip()})</span></div>", unsafe_allow_html=True)
-
-with hdr_c2:
-    st.markdown(f"<div style='display: flex; justify-content: flex-end; align-items: center; gap: 10px;'><span style='background: #141720; border: 1px solid #1E2330; padding: 6px 14px; border-radius: 20px; font-size: 0.78rem; color: #94A3B8;'>Connected: <b style='color:#00E396;'>Postgres</b></span><span style='background: #141720; border: 1px solid #1E2330; padding: 6px 14px; border-radius: 20px; font-size: 0.78rem; color: #94A3B8;'>SLA: <b style='color:#00B2FF;'>99.98%</b></span></div>", unsafe_allow_html=True)
 
 # Metrics calculation
 total_stock = int(analytics_df['stock'].sum()) if not analytics_df.empty else 0
@@ -697,458 +722,435 @@ nominal_balance_val = format_currency(78500.00)
 replenish_outlay_val = format_currency(12980.00)
 
 # ==========================================
-# ROW 1: 4 KPI CARDS + PRODUCT ACTIVITY DONUT
+# TOP HEADER BAR
 # ==========================================
-r1_c1, r1_c2, r1_c3 = st.columns([1.2, 1.2, 1.6])
-
-with r1_c1:
-    st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Nominal Balance</span><span style='color: #64748B;'>💳</span></div><div class='card-val-lg'>{nominal_balance_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>↑ 1.18% weekly</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 25 Q 25 5, 50 18 T 100 8' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Nominal Revenue</span><span style='color: #64748B;'>📈</span></div><div class='card-val-lg'>{nominal_revenue_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>↑ 0.29% run-rate</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 20 Q 30 28, 60 10 T 100 5' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
-
-with r1_c2:
-    st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Total Stock Volume</span><span style='color: #64748B;'>📦</span></div><div class='card-val-lg'>{total_stock:,} <span class='card-unit'>ITEMS</span></div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-cyan'>↑ 0.28% inventory</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 15 Q 35 2, 70 20 T 100 8' stroke='#00B2FF' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Replenishment Outlay</span><span style='color: #64748B;'>⚠️</span></div><div class='card-val-lg'>{replenish_outlay_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-red'>↓ 0.15% PO deficit</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 8 Q 30 22, 60 12 T 100 24' stroke='#FF4560' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
-
-with r1_c3:
-    st.markdown("<div class='dribbble-card' style='height: 100%;'><div class='card-header-flex'><span class='card-label'>Product Activity Distribution</span><span class='chip chip-cyan'>LIVE TELEMETRY</span></div>", unsafe_allow_html=True)
-
-    if PLOTLY_AVAILABLE:
-        fig_donut = go.Figure(data=[go.Pie(
-            labels=["Healthy Units", "Restock Needed", "Class-A Items", "Expiry Risk"],
-            values=[healthy_units or 1, restock_needed or 1, max(1, int(len(analytics_df)*0.2)), perish_alert or 1],
-            hole=0.72,
-            marker=dict(colors=["#00B2FF", "#FEB019", "#00E396", "#FF4560"]),
-            hoverinfo="label+value",
-            textinfo="none"
-        )])
-        fig_donut.update_layout(
-            showlegend=False,
-            margin=dict(t=5, b=5, l=5, r=5),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            height=205,
-            annotations=[dict(
-                text=f"<b>{total_stock:,}</b><br><span style='font-size:11px;color:#8E9BAE;'>Total Units</span>",
-                x=0.5, y=0.5, font_size=18, font_color="#FFFFFF", showarrow=False
-            )]
-        )
-        st.plotly_chart(fig_donut, use_container_width=True, config={"displayModeBar": False})
-    else:
-        st.markdown(f"<div style='text-align:center; padding: 40px 0;'><h2>{total_stock:,} Units</h2><p>Telemetry Ready</p></div>", unsafe_allow_html=True)
-
-    st.markdown(f"<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.76rem; font-weight: 600; padding-top: 4px;'><div><span style='color:#00B2FF;'>●</span> Healthy: <b style='color:#FFF;'>{healthy_units}</b></div><div><span style='color:#FEB019;'>●</span> Restock: <b style='color:#FFF;'>{restock_needed}</b></div><div><span style='color:#00E396;'>●</span> Fast Mover: <b style='color:#FFF;'>{int(len(analytics_df)*0.2)}</b></div><div><span style='color:#FF4560;'>●</span> Spoilage: <b style='color:#FFF;'>{perish_alert}</b></div></div></div>", unsafe_allow_html=True)
+active_page_label = next((label for label, pid in PAGES_LIST if pid == st.session_state.active_page), "Console")
+st.markdown(f"""
+    <div style='display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;'>
+        <div style='display: flex; align-items: center; gap: 12px;'>
+            <span style='font-size: 1.4rem; font-weight: 800; color: #FFFFFF;'>⚡ {active_page_label}</span>
+            <span style='color: #4B5563;'>•</span>
+            <span class='chip chip-cyan'>FLEET ONLINE</span>
+            <span class='chip chip-green'>CURRENCY: {c_code} ({c_sym.strip()})</span>
+        </div>
+        <div style='display: flex; align-items: center; gap: 8px;'>
+            <span style='background: #141720; border: 1px solid #1E2330; padding: 6px 12px; border-radius: 20px; font-size: 0.75rem; color: #94A3B8;'>Connected: <b style='color:#00E396;'>Postgres</b></span>
+            <span style='background: #141720; border: 1px solid #1E2330; padding: 6px 12px; border-radius: 20px; font-size: 0.75rem; color: #94A3B8;'>SLA: <b style='color:#00B2FF;'>99.98%</b></span>
+        </div>
+    </div>
+""", unsafe_allow_html=True)
 
 # ==========================================
-# ROW 2: VELOCITY DRIFT + RISK MATRIX
+# MAIN ROUTER: DYNAMIC PAGE SELECTION
 # ==========================================
-r2_c1, r2_c2 = st.columns([1.6, 1.1])
 
-with r2_c1:
-    st.markdown("<div class='dribbble-card'><div class='card-header-flex'><div><span class='card-label'>Inventory & Inflow Velocity Drift</span><div style='font-size: 0.72rem; color: #64748B;'>Total unit transactions vs weekly baseline</div></div><div style='display: flex; gap: 12px; font-size: 0.75rem; font-weight: 600;'><span style='color: #00B2FF;'>● Total Throughput</span><span style='color: #FF4560;'>● Critical Restocks</span></div></div>", unsafe_allow_html=True)
+# 1. DASHBOARD OVERVIEW (Default Landing Page)
+if st.session_state.active_page == "dashboard":
+    r1_c1, r1_c2, r1_c3 = st.columns([1.2, 1.2, 1.6])
 
-    if PLOTLY_AVAILABLE:
-        days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        fig_area = go.Figure()
-        fig_area.add_trace(go.Scatter(
-            x=days, y=[310, 480, 520, 890, 740, 960, 680],
-            fill='tozeroy', mode='lines', line=dict(width=3, color='#00B2FF', shape='spline'),
-            fillcolor='rgba(0, 178, 255, 0.12)', name='Throughput'
-        ))
-        fig_area.add_trace(go.Scatter(
-            x=days, y=[25, 40, 35, 110, 80, 95, 45],
-            fill='tozeroy', mode='lines', line=dict(width=2, color='#FF4560', shape='spline'),
-            fillcolor='rgba(255, 69, 96, 0.08)', name='Restock Events'
-        ))
-        fig_area.update_layout(
-            margin=dict(t=5, b=20, l=10, r=10),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            height=215,
-            showlegend=False,
-            xaxis=dict(showgrid=False, tickfont=dict(color="#8E9BAE", size=11)),
-            yaxis=dict(showgrid=True, gridcolor="#1B1F2A", tickfont=dict(color="#8E9BAE", size=11))
-        )
-        st.plotly_chart(fig_area, use_container_width=True, config={"displayModeBar": False})
-    else:
-        st.info("Install plotly to view stream area curve.")
+    with r1_c1:
+        st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Nominal Balance</span><span style='color: #64748B;'>💳</span></div><div class='card-val-lg'>{nominal_balance_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>↑ 1.18% weekly</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 25 Q 25 5, 50 18 T 100 8' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Nominal Revenue</span><span style='color: #64748B;'>📈</span></div><div class='card-val-lg'>{nominal_revenue_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>↑ 0.29% run-rate</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 20 Q 30 28, 60 10 T 100 5' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    with r1_c2:
+        st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Total Stock Volume</span><span style='color: #64748B;'>📦</span></div><div class='card-val-lg'>{total_stock:,} <span class='card-unit'>ITEMS</span></div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-cyan'>↑ 0.28% inventory</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 15 Q 35 2, 70 20 T 100 8' stroke='#00B2FF' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Replenishment Outlay</span><span style='color: #64748B;'>⚠️</span></div><div class='card-val-lg'>{replenish_outlay_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-red'>↓ 0.15% PO deficit</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 8 Q 30 22, 60 12 T 100 24' stroke='#FF4560' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
 
-with r2_c2:
-    st.markdown("<div class='dribbble-card'><div class='card-header-flex'><div><span class='card-label'>Risk by Department Matrix</span><div style='font-size: 0.72rem; color: #64748B;'>Category stockout vulnerability profile</div></div><span class='chip chip-amber'>LEVEL: WARN</span></div>", unsafe_allow_html=True)
+    with r1_c3:
+        st.markdown("<div class='dribbble-card' style='height: 100%;'><div class='card-header-flex'><span class='card-label'>Product Activity Distribution</span><span class='chip chip-cyan'>LIVE TELEMETRY</span></div>", unsafe_allow_html=True)
 
-    if not analytics_df.empty:
-        cat_risk = analytics_df.groupby("category").apply(
-            lambda x: pd.Series({
-                "Low": int((x["reorder_status"] == "HEALTHY").sum()),
-                "Med": int(((x["stock"] <= x["rop"] * 1.5) & (x["stock"] > x["rop"])).sum()),
-                "High": int((x["reorder_status"] == "RESTOCK NEEDED").sum())
+        if PLOTLY_AVAILABLE:
+            fig_donut = go.Figure(data=[go.Pie(
+                labels=["Healthy Units", "Restock Needed", "Class-A Items", "Expiry Risk"],
+                values=[healthy_units or 1, restock_needed or 1, max(1, int(len(analytics_df)*0.2)), perish_alert or 1],
+                hole=0.72,
+                marker=dict(colors=["#00B2FF", "#FEB019", "#00E396", "#FF4560"]),
+                hoverinfo="label+value",
+                textinfo="none"
+            )])
+            fig_donut.update_layout(
+                showlegend=False,
+                margin=dict(t=5, b=5, l=5, r=5),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                height=205,
+                annotations=[dict(
+                    text=f"<b>{total_stock:,}</b><br><span style='font-size:11px;color:#8E9BAE;'>Total Units</span>",
+                    x=0.5, y=0.5, font_size=18, font_color="#FFFFFF", showarrow=False
+                )]
+            )
+            st.plotly_chart(fig_donut, use_container_width=True, config={"displayModeBar": False})
+        else:
+            st.markdown(f"<div style='text-align:center; padding: 40px 0;'><h2>{total_stock:,} Units</h2><p>Telemetry Ready</p></div>", unsafe_allow_html=True)
+
+        st.markdown(f"<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.76rem; font-weight: 600; padding-top: 4px;'><div><span style='color:#00B2FF;'>●</span> Healthy: <b style='color:#FFF;'>{healthy_units}</b></div><div><span style='color:#FEB019;'>●</span> Restock: <b style='color:#FFF;'>{restock_needed}</b></div><div><span style='color:#00E396;'>●</span> Fast Mover: <b style='color:#FFF;'>{int(len(analytics_df)*0.2)}</b></div><div><span style='color:#FF4560;'>●</span> Spoilage: <b style='color:#FFF;'>{perish_alert}</b></div></div></div>", unsafe_allow_html=True)
+
+    r2_c1, r2_c2 = st.columns([1.6, 1.1])
+
+    with r2_c1:
+        st.markdown("<div class='dribbble-card'><div class='card-header-flex'><div><span class='card-label'>Inventory & Inflow Velocity Drift</span><div style='font-size: 0.72rem; color: #64748B;'>Total unit transactions vs weekly baseline</div></div><div style='display: flex; gap: 12px; font-size: 0.75rem; font-weight: 600;'><span style='color: #00B2FF;'>● Total Throughput</span><span style='color: #FF4560;'>● Critical Restocks</span></div></div>", unsafe_allow_html=True)
+
+        if PLOTLY_AVAILABLE:
+            days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            fig_area = go.Figure()
+            fig_area.add_trace(go.Scatter(
+                x=days, y=[310, 480, 520, 890, 740, 960, 680],
+                fill='tozeroy', mode='lines', line=dict(width=3, color='#00B2FF', shape='spline'),
+                fillcolor='rgba(0, 178, 255, 0.12)', name='Throughput'
+            ))
+            fig_area.add_trace(go.Scatter(
+                x=days, y=[25, 40, 35, 110, 80, 95, 45],
+                fill='tozeroy', mode='lines', line=dict(width=2, color='#FF4560', shape='spline'),
+                fillcolor='rgba(255, 69, 96, 0.08)', name='Restock Events'
+            ))
+            fig_area.update_layout(
+                margin=dict(t=5, b=20, l=10, r=10),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                height=215,
+                showlegend=False,
+                xaxis=dict(showgrid=False, tickfont=dict(color="#8E9BAE", size=11)),
+                yaxis=dict(showgrid=True, gridcolor="#1B1F2A", tickfont=dict(color="#8E9BAE", size=11))
+            )
+            st.plotly_chart(fig_area, use_container_width=True, config={"displayModeBar": False})
+        else:
+            st.info("Install plotly to view stream area curve.")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with r2_c2:
+        st.markdown("<div class='dribbble-card'><div class='card-header-flex'><div><span class='card-label'>Risk by Department Matrix</span><div style='font-size: 0.72rem; color: #64748B;'>Category stockout vulnerability profile</div></div><span class='chip chip-amber'>LEVEL: WARN</span></div>", unsafe_allow_html=True)
+
+        if not analytics_df.empty:
+            cat_risk = analytics_df.groupby("category").apply(
+                lambda x: pd.Series({
+                    "Low": int((x["reorder_status"] == "HEALTHY").sum()),
+                    "Med": int(((x["stock"] <= x["rop"] * 1.5) & (x["stock"] > x["rop"])).sum()),
+                    "High": int((x["reorder_status"] == "RESTOCK NEEDED").sum())
+                })
+            ).reset_index().head(5)
+
+            table_rows = "".join([
+                f"<tr><td><b>{r['category'][:14]}</b></td>"
+                f"<td style='color:#00E396;'>{r['Low']}</td>"
+                f"<td style='color:#FEB019;'>{r['Med']}</td>"
+                f"<td style='color:#FF4560;'><b>{r['High']}</b></td></tr>"
+                for _, r in cat_risk.iterrows()
+            ])
+            table_html = f"<table class='risk-table'><tr><th>DEPT</th><th>LOW</th><th>MED</th><th>HIGH</th></tr>{table_rows}</table>"
+            st.markdown(table_html, unsafe_allow_html=True)
+        else:
+            st.caption("Awaiting live database feed.")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# 2. PROFILE & VAULT
+elif st.session_state.active_page == "profile":
+    st.markdown("##### **👤 Operator Profile & Encrypted Vault**")
+    st.caption("Manage regional currency localization, database credentials, and SMTP dispatchers.")
+
+    prof_c1, prof_c2 = st.columns([1.2, 1.2])
+
+    with prof_c1:
+        st.markdown("<div class='dribbble-card'>", unsafe_allow_html=True)
+        st.markdown("###### **1. Regional Currency & Localization**")
+        st.caption("Adapts all system valuations, ledger cards, and POs to your local financial market.")
+
+        curr_keys = list(CURRENCY_PROFILES.keys())
+        curr_labels = [CURRENCY_PROFILES[k]["label"] for k in curr_keys]
+        curr_default_idx = curr_keys.index(user_curr_code) if user_curr_code in curr_keys else 0
+
+        selected_curr_label = st.selectbox("Regional Currency Format", curr_labels, index=curr_default_idx)
+        selected_curr_code = curr_keys[curr_labels.index(selected_curr_label)]
+        selected_curr_sym = CURRENCY_PROFILES[selected_curr_code]["symbol"]
+
+        st.markdown(f"**Selected Currency:** `{selected_curr_code}` (`{selected_curr_sym.strip()}`)")
+        st.markdown(f"**Sample Presentation:** `{selected_curr_sym}12,450.00`")
+
+        st.markdown("<hr style='border-color: #1E2330; margin: 15px 0;'>", unsafe_allow_html=True)
+        st.markdown("###### **2. Database Pipeline Credentials**")
+
+        db_input_mode = st.radio("Pipeline Definition Mode:", ["Form Setup", "Direct URI"], horizontal=True, key="prof_db_mode")
+        dialect_list = ["PostgreSQL / Neon", "MySQL", "MariaDB", "MS SQL Server", "SQLite", "Custom / Direct"]
+        saved_dialect = current_user.get("db_dialect", "PostgreSQL / Neon")
+        default_dialect_idx = dialect_list.index(saved_dialect) if saved_dialect in dialect_list else 0
+
+        if db_input_mode == "Form Setup":
+            p_dialect = st.selectbox("DB Engine", dialect_list, index=default_dialect_idx, key="prof_db_dialect")
+            p_host = st.text_input("Host Address", value=current_user.get("db_host", ""), placeholder="ep-xyz.neon.tech", key="prof_db_host")
+            p_port = st.text_input("Port", value=current_user.get("db_port", "") or ("5432" if "PostgreSQL" in p_dialect else "3306"), key="prof_db_port")
+            p_name = st.text_input("Database Name", value=current_user.get("db_name", ""), placeholder="neondb", key="prof_db_name")
+            p_user = st.text_input("Username", value=current_user.get("db_user", ""), placeholder="neondb_owner", key="prof_db_user")
+            p_pass = st.text_input("Auth Secret", value=current_user.get("db_pass", ""), placeholder="••••••••", type="password", key="prof_db_pass")
+
+            if p_host and p_name:
+                clean_name = p_name.split("?")[0].strip()
+                if "PostgreSQL" in p_dialect:
+                    p_uri = f"postgresql://{p_user}:{p_pass}@{p_host}:{p_port or '5432'}/{clean_name}?sslmode=require"
+                elif "MySQL" in p_dialect or "MariaDB" in p_dialect:
+                    p_uri = f"mysql+pymysql://{p_user}:{p_pass}@{p_host}:{p_port or '3306'}/{clean_name}"
+                elif "SQLite" in p_dialect:
+                    p_uri = f"sqlite:///{clean_name}.db"
+                else:
+                    p_uri = f"{p_user}:{p_pass}@{p_host}:{p_port}/{clean_name}"
+            else:
+                p_uri = current_user.get("db_uri", "")
+        else:
+            p_dialect = "Direct URI"
+            p_host, p_port, p_name, p_user, p_pass = "", "", "", "", ""
+            p_uri = st.text_input("Connection String", value=current_user.get("db_uri", ""), type="password", key="prof_db_uri")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with prof_c2:
+        st.markdown("<div class='dribbble-card'>", unsafe_allow_html=True)
+        st.markdown("###### **3. SMTP Vendor Dispatcher Credentials**")
+        st.caption("Used to automatically dispatch purchase orders to suppliers via TLS.")
+
+        p_smtp_srv = st.text_input("SMTP Relay Host", value=current_user.get("smtp_server", ""), placeholder="smtp.gmail.com", key="prof_smtp_srv")
+        p_smtp_prt = st.number_input("SMTP Port", min_value=1, max_value=65535, value=int(current_user.get("smtp_port") or 587), key="prof_smtp_prt")
+        p_smtp_snd = st.text_input("Sender Account", value=current_user.get("smtp_sender", ""), placeholder="ops@retail.com", key="prof_smtp_snd")
+        p_smtp_pwd = st.text_input("App Password", value=current_user.get("smtp_password", ""), placeholder="••••••••", type="password", key="prof_smtp_pwd")
+
+        st.markdown("<hr style='border-color: #1E2330; margin: 15px 0;'>", unsafe_allow_html=True)
+        st.markdown("###### **4. Identity & Access Control**")
+        st.markdown(f"• **Operator ID:** `{current_user.get('email', '')}`")
+        st.markdown(f"• **Vault Engine:** `SQLite 3 (WAL Mode)`")
+        st.markdown(f"• **Session Security:** `AES-SHA256 Tokenized`")
+
+        if st.button("UPDATE VAULT & SAVE CONFIGURATION", type="primary", use_container_width=True):
+            save_user_credentials(
+                current_user["id"], p_dialect, p_host, str(p_port), p_name, p_user, p_pass,
+                p_uri, selected_curr_code, selected_curr_sym, p_smtp_srv, int(p_smtp_prt), p_smtp_snd, p_smtp_pwd
+            )
+            current_user.update({
+                "db_dialect": p_dialect, "db_host": p_host, "db_port": str(p_port), "db_name": p_name,
+                "db_user": p_user, "db_pass": p_pass, "db_uri": p_uri,
+                "currency_code": selected_curr_code, "currency_symbol": selected_curr_sym,
+                "smtp_server": p_smtp_srv, "smtp_port": int(p_smtp_prt), "smtp_sender": p_smtp_snd, "smtp_password": p_smtp_pwd
             })
-        ).reset_index().head(5)
-
-        table_rows = "".join([
-            f"<tr><td><b>{r['category'][:14]}</b></td>"
-            f"<td style='color:#00E396;'>{r['Low']}</td>"
-            f"<td style='color:#FEB019;'>{r['Med']}</td>"
-            f"<td style='color:#FF4560;'><b>{r['High']}</b></td></tr>"
-            for _, r in cat_risk.iterrows()
-        ])
-        
-        table_html = f"<table class='risk-table'><tr><th>DEPT</th><th>LOW</th><th>MED</th><th>HIGH</th></tr>{table_rows}</table>"
-        st.markdown(table_html, unsafe_allow_html=True)
-    else:
-        st.caption("Awaiting live database feed.")
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ==========================================
-# RIGHT-SIDE VERTICAL NAVIGATION & WORKSPACE
-# ==========================================
-st.markdown("<hr style='border-color: #1E2330; margin: 25px 0 20px 0;'>", unsafe_allow_html=True)
-
-col_workspace, col_right_nav = st.columns([3.2, 1.1])
-
-# Navigation Menu Configuration
-NAV_TABS = [
-    ("👤 Profile & Vault", "profile"),
-    ("📋 Recent Transactions", "recent_tx"),
-    ("🔬 Data Report (EDA)", "eda_report"),
-    ("📦 Inventory Catalog", "catalog"),
-    ("🛡️ Risk & Governance", "risk_gov"),
-    ("⚡ POS Scan & Intake", "pos_scan"),
-    ("✉️ PO Dispatch", "po_dispatch"),
-    ("🔌 DB Terminal", "db_terminal")
-]
-
-# Right-Side Navigation Rail
-with col_right_nav:
-    st.markdown("""
-        <div class='dribbble-card' style='padding: 16px 14px;'>
-            <div style='font-size: 0.72rem; font-weight: 700; color: #8E9BAE; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;'>
-                <span>CONSOLE MODULES</span>
-                <span class='chip chip-cyan'>RAIL</span>
-            </div>
-    """, unsafe_allow_html=True)
-
-    for label, tab_id in NAV_TABS:
-        is_active = (st.session_state.right_nav_tab == tab_id)
-        btn_type = "primary" if is_active else "secondary"
-        if st.button(label, key=f"nav_btn_{tab_id}", type=btn_type, use_container_width=True):
-            st.session_state.right_nav_tab = tab_id
+            st.toast("Profile, Currency & Vault Updated!", icon="💾")
             st.rerun()
 
-    st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-# Left Workspace Container
-with col_workspace:
+# 3. RECENT TRANSACTIONS
+elif st.session_state.active_page == "recent_tx":
+    st.markdown("##### **📋 Recent Fleet Movements & Ledger Events**")
+    if not raw_movements.empty:
+        st.dataframe(raw_movements.head(20), use_container_width=True, hide_index=True)
+    elif not analytics_df.empty:
+        display_cols = ["sku", "name", "category", "stock", "lead_time", "rop", "days_runway", "reorder_status", "abc_class", "suggested_po_qty", "vendor"]
+        available_cols = [c for c in display_cols if c in analytics_df.columns]
+        st.dataframe(analytics_df[available_cols].head(20), use_container_width=True, hide_index=True)
+    else:
+        st.info("No transaction records detected. Connect database or provision schema to initialize.")
 
-    # 1. PROFILE & VAULT
-    if st.session_state.right_nav_tab == "profile":
-        st.markdown("##### **👤 Operator Profile & Encrypted Vault**")
-        st.caption("Configure regional currency formatting, database connection strings, and dispatcher credentials.")
-
-        prof_c1, prof_c2 = st.columns([1.2, 1.2])
-
-        with prof_c1:
-            st.markdown("<div class='dribbble-card'>", unsafe_allow_html=True)
-            st.markdown("###### **1. Regional Currency & Localization**")
-            st.caption("Adapts all system valuations, ledger cards, and POs to your local financial market.")
-
-            curr_keys = list(CURRENCY_PROFILES.keys())
-            curr_labels = [CURRENCY_PROFILES[k]["label"] for k in curr_keys]
-            curr_default_idx = curr_keys.index(user_curr_code) if user_curr_code in curr_keys else 0
-
-            selected_curr_label = st.selectbox("Regional Currency Format", curr_labels, index=curr_default_idx)
-            selected_curr_code = curr_keys[curr_labels.index(selected_curr_label)]
-            selected_curr_sym = CURRENCY_PROFILES[selected_curr_code]["symbol"]
-
-            st.markdown(f"**Selected Currency:** `{selected_curr_code}` (`{selected_curr_sym.strip()}`)")
-            st.markdown(f"**Sample Presentation:** `{selected_curr_sym}12,450.00`")
-
-            st.markdown("<hr style='border-color: #1E2330; margin: 15px 0;'>", unsafe_allow_html=True)
-            st.markdown("###### **2. Database Pipeline Credentials**")
-
-            db_input_mode = st.radio("Pipeline Definition Mode:", ["Form Setup", "Direct URI"], horizontal=True, key="prof_db_mode")
-            dialect_list = ["PostgreSQL / Neon", "MySQL", "MariaDB", "MS SQL Server", "SQLite", "Custom / Direct"]
-            saved_dialect = current_user.get("db_dialect", "PostgreSQL / Neon")
-            default_dialect_idx = dialect_list.index(saved_dialect) if saved_dialect in dialect_list else 0
-
-            if db_input_mode == "Form Setup":
-                p_dialect = st.selectbox("DB Engine", dialect_list, index=default_dialect_idx, key="prof_db_dialect")
-                p_host = st.text_input("Host Address", value=current_user.get("db_host", ""), placeholder="ep-xyz.neon.tech", key="prof_db_host")
-                p_port = st.text_input("Port", value=current_user.get("db_port", "") or ("5432" if "PostgreSQL" in p_dialect else "3306"), key="prof_db_port")
-                p_name = st.text_input("Database Name", value=current_user.get("db_name", ""), placeholder="neondb", key="prof_db_name")
-                p_user = st.text_input("Username", value=current_user.get("db_user", ""), placeholder="neondb_owner", key="prof_db_user")
-                p_pass = st.text_input("Auth Secret", value=current_user.get("db_pass", ""), placeholder="••••••••", type="password", key="prof_db_pass")
-
-                if p_host and p_name:
-                    clean_name = p_name.split("?")[0].strip()
-                    if "PostgreSQL" in p_dialect:
-                        p_uri = f"postgresql://{p_user}:{p_pass}@{p_host}:{p_port or '5432'}/{clean_name}?sslmode=require"
-                    elif "MySQL" in p_dialect or "MariaDB" in p_dialect:
-                        p_uri = f"mysql+pymysql://{p_user}:{p_pass}@{p_host}:{p_port or '3306'}/{clean_name}"
-                    elif "SQLite" in p_dialect:
-                        p_uri = f"sqlite:///{clean_name}.db"
-                    else:
-                        p_uri = f"{p_user}:{p_pass}@{p_host}:{p_port}/{clean_name}"
-                else:
-                    p_uri = current_user.get("db_uri", "")
-            else:
-                p_dialect = "Direct URI"
-                p_host, p_port, p_name, p_user, p_pass = "", "", "", "", ""
-                p_uri = st.text_input("Connection String", value=current_user.get("db_uri", ""), type="password", key="prof_db_uri")
-
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        with prof_c2:
-            st.markdown("<div class='dribbble-card'>", unsafe_allow_html=True)
-            st.markdown("###### **3. SMTP Vendor Dispatcher Credentials**")
-            st.caption("Used to automatically dispatch purchase orders to suppliers via TLS.")
-
-            p_smtp_srv = st.text_input("SMTP Relay Host", value=current_user.get("smtp_server", ""), placeholder="smtp.gmail.com", key="prof_smtp_srv")
-            p_smtp_prt = st.number_input("SMTP Port", min_value=1, max_value=65535, value=int(current_user.get("smtp_port") or 587), key="prof_smtp_prt")
-            p_smtp_snd = st.text_input("Sender Account", value=current_user.get("smtp_sender", ""), placeholder="ops@retail.com", key="prof_smtp_snd")
-            p_smtp_pwd = st.text_input("App Password", value=current_user.get("smtp_password", ""), placeholder="••••••••", type="password", key="prof_smtp_pwd")
-
-            st.markdown("<hr style='border-color: #1E2330; margin: 15px 0;'>", unsafe_allow_html=True)
-            st.markdown("###### **4. Identity & Access Control**")
-            st.markdown(f"• **Operator ID:** `{current_user.get('email', '')}`")
-            st.markdown(f"• **Vault Engine:** `SQLite 3 (WAL Mode)`")
-            st.markdown(f"• **Session Security:** `AES-SHA256 Tokenized`")
-
-            if st.button("UPDATE VAULT & SAVE CONFIGURATION", type="primary", use_container_width=True):
-                save_user_credentials(
-                    current_user["id"], p_dialect, p_host, str(p_port), p_name, p_user, p_pass,
-                    p_uri, selected_curr_code, selected_curr_sym, p_smtp_srv, int(p_smtp_prt), p_smtp_snd, p_smtp_pwd
-                )
-                current_user.update({
-                    "db_dialect": p_dialect, "db_host": p_host, "db_port": str(p_port), "db_name": p_name,
-                    "db_user": p_user, "db_pass": p_pass, "db_uri": p_uri,
-                    "currency_code": selected_curr_code, "currency_symbol": selected_curr_sym,
-                    "smtp_server": p_smtp_srv, "smtp_port": int(p_smtp_prt), "smtp_sender": p_smtp_snd, "smtp_password": p_smtp_pwd
-                })
-                st.toast("Profile, Currency & Vault Updated Successfully!", icon="💾")
-                st.rerun()
-
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    # 2. RECENT TRANSACTIONS
-    elif st.session_state.right_nav_tab == "recent_tx":
-        st.markdown("##### **📋 Recent Fleet Movements & Checkout Transactions**")
-        if not raw_movements.empty:
-            st.dataframe(raw_movements.head(15), use_container_width=True, hide_index=True)
-        elif not analytics_df.empty:
-            display_cols = ["sku", "name", "category", "stock", "lead_time", "rop", "days_runway", "reorder_status", "abc_class", "suggested_po_qty", "vendor"]
-            available_cols = [c for c in display_cols if c in analytics_df.columns]
-            st.dataframe(analytics_df[available_cols].head(15), use_container_width=True, hide_index=True)
-        else:
-            st.info("No transaction records detected. Connect database or provision schema to initialize.")
-
-    # 3. DATA REPORT (EDA)
-    elif st.session_state.right_nav_tab == "eda_report":
-        st.markdown("##### **🔬 14-Point Automated Statistical EDA Telemetry**")
-        if not eda_results:
-            st.info("Awaiting live database connection.")
-        else:
-            eda_c1, eda_c2, eda_c3, eda_c4 = st.columns(4)
-            eda_c1.metric("Catalog SKUs", eda_results["overview"]["catalog_rows"])
-            eda_c2.metric("Ledger Records", eda_results["overview"]["sales_ledger_rows"])
-            eda_c3.metric("Stock Outliers", eda_results["outliers"]["stock_outliers"])
-            eda_c4.metric("Audit Cells Scanned", f"{eda_results['overview']['total_cells_scanned']:,}")
-
-            st.divider()
-            e_col1, e_col2 = st.columns(2)
-            with e_col1:
-                st.markdown("**Numerical Feature Distributions**")
-                num_df = pd.DataFrame(eda_results["numerical_stats"]).T
-                num_df.index.name = "Metric"
-                st.dataframe(num_df.reset_index(), use_container_width=True, hide_index=True)
-            with e_col2:
-                st.markdown("**Data Hygiene & Anomaly Screening**")
-                dup_s = eda_results['duplicates']['duplicate_skus']
-                dup_t = eda_results['duplicates']['duplicate_transactions']
-                st.markdown(f"• **Duplicate Primary Barcodes:** `{'None (100% Unique)' if dup_s == 0 else f'{dup_s} conflicts'}`")
-                st.markdown(f"• **Duplicate Sales Events:** `{'None (Clean)' if dup_t == 0 else f'{dup_t} duplicates'}`")
-                if eda_results["data_quality"]:
-                    for dq in eda_results["data_quality"]:
-                        st.error(f"⚠️ {dq}")
-                else:
-                    st.success("✅ Clean Pipeline: Zero negative stock or future date leakage detected.")
-
-    # 4. INVENTORY CATALOG
-    elif st.session_state.right_nav_tab == "catalog":
-        st.markdown("##### **📦 Real-Time Catalog & ABC-XYZ Pareto Matrix**")
-        if not analytics_df.empty:
-            search_q = st.text_input("Filter Catalog by Name, SKU, or Category:", placeholder="Search...")
-            filtered_df = analytics_df.copy()
-            if search_q:
-                filtered_df = filtered_df[
-                    filtered_df["name"].str.contains(search_q, case=False, na=False) |
-                    filtered_df["sku"].str.contains(search_q, case=False, na=False) |
-                    filtered_df["category"].str.contains(search_q, case=False, na=False)
-                ]
-            cols_show = ["sku", "name", "category", "stock", "lead_time", "daily_velocity", "rop", "days_runway", "reorder_status", "abc_class", "suggested_po_qty", "vendor"]
-            st.dataframe(filtered_df[[c for c in cols_show if c in filtered_df.columns]], use_container_width=True, hide_index=True)
-        else:
-            st.info("No catalog data online.")
-
-    # 5. RISK AND GOVERNANCE
-    elif st.session_state.right_nav_tab == "risk_gov":
-        st.markdown("##### **🛡️ Autonomous Risk & Compliance Radar**")
-        st.caption("Heuristic detection of lead-time variances, stockout vulnerability, and cold-chain perishability.")
-
-        col_g1, col_g2, col_g3, col_g4 = st.columns(4)
-        col_g1.metric("Compliance Rating", "98/100", "+2 pts")
-        col_g2.metric("Critical Stockout Risks", restock_needed, "-1 resolving")
-        col_g3.metric("Shelf-Life Decay Alerts", perish_alert, "Action required")
-        col_g4.metric("Vendor Reliability Score", "96.4%", "Stable")
+# 4. DATA REPORT (EDA)
+elif st.session_state.active_page == "eda_report":
+    st.markdown("##### **🔬 14-Point Automated Statistical EDA Telemetry**")
+    if not eda_results:
+        st.info("Awaiting live database connection to compile exploratory audit.")
+    else:
+        eda_c1, eda_c2, eda_c3, eda_c4 = st.columns(4)
+        eda_c1.metric("Catalog SKUs", eda_results["overview"]["catalog_rows"])
+        eda_c2.metric("Ledger Records", eda_results["overview"]["sales_ledger_rows"])
+        eda_c3.metric("Stock Outliers", eda_results["outliers"]["stock_outliers"])
+        eda_c4.metric("Audit Cells Scanned", f"{eda_results['overview']['total_cells_scanned']:,}")
 
         st.divider()
-        r_col1, r_col2 = st.columns([1.2, 1])
-
-        with r_col1:
-            st.markdown("**Perishability Horizon Breakdown**")
-            if not analytics_df.empty:
-                perish_items = analytics_df[analytics_df["expiry_days"] <= 14][["sku", "name", "category", "stock", "expiry_days", "vendor"]]
-                if not perish_items.empty:
-                    st.dataframe(perish_items, use_container_width=True, hide_index=True)
-                else:
-                    st.success("✨ Zero items within critical 14-day expiration window.")
-
-        with r_col2:
-            st.markdown("**Vendor SLA Compliance Watch**")
-            if not analytics_df.empty:
-                vendor_lead_times = analytics_df.groupby("vendor")["lead_time"].mean().reset_index()
-                vendor_lead_times.columns = ["Supplier", "Avg Turnaround (Days)"]
-                st.dataframe(vendor_lead_times, use_container_width=True, hide_index=True)
-
-    # 6. POS SCAN INTAKE
-    elif st.session_state.right_nav_tab == "pos_scan":
-        st.markdown("##### **⚡ Point-of-Sale Checkout & Receiving Terminal**")
-        if not analytics_df.empty:
-            p_col1, p_col2 = st.columns([1, 1.4])
-            with p_col1:
-                selected_sku = st.selectbox("Scan or Select SKU / Barcode", analytics_df["sku"].tolist())
-                sku_row = analytics_df[analytics_df["sku"] == selected_sku].iloc[0]
-                action = st.radio("Movement Operation:", ["📥 Stock IN (Receive)", "⚡ POS Checkout (Sale)", "📤 Stock OUT (Write-off)"], horizontal=True)
-                units = st.number_input("Unit Count", min_value=1, step=1, value=1)
-                
-                st.markdown(f"**Item:** `{sku_row['name']}` | **Current Stock:** `{sku_row['stock']}` | **ROP:** `{sku_row['rop']}`")
-
-                if st.button("COMMIT TRANSACTION TO DB", type="primary", use_container_width=True):
-                    if is_connected:
-                        try:
-                            stock_col = prod_map.get("stock", "stock")
-                            sku_col = prod_map.get("sku", "sku")
-                            with engine.begin() as conn:
-                                if "Stock IN" in action:
-                                    conn.execute(text(f"UPDATE products_master SET {stock_col} = {stock_col} + :qty WHERE {sku_col} = :sku"), {"qty": units, "sku": selected_sku})
-                                    conn.execute(text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'STOCK_IN', :qty, 'Intake delivery')"), {"ts": datetime.now(), "sku": selected_sku, "qty": units})
-                                    st.toast(f"Committed +{units}x {sku_row['name']}", icon="📥")
-                                elif "POS Checkout" in action:
-                                    res = conn.execute(text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku AND {stock_col} >= :qty"), {"qty": units, "sku": selected_sku})
-                                    if res.rowcount == 0:
-                                        st.error("Transaction Aborted: Insufficient stock!")
-                                    else:
-                                        conn.execute(text("INSERT INTO sales_ledger (transaction_date, sku, product_name, category, quantity_sold, is_weekend) VALUES (:tdate, :sku, :name, :cat, :qty, :wkd)"), {"tdate": datetime.now(), "sku": selected_sku, "name": sku_row["name"], "cat": sku_row["category"], "qty": units, "wkd": 1 if datetime.now().weekday() >= 5 else 0})
-                                        conn.execute(text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'POS_SCAN', :qty, 'Live register checkout')"), {"ts": datetime.now(), "sku": selected_sku, "qty": -units})
-                                        st.toast(f"Sold -{units}x {sku_row['name']}", icon="🛒")
-                            st.rerun()
-                        except Exception as err:
-                            st.error(f"Transaction failed: {err}")
-                    else:
-                        st.error("Database connection offline.")
-            with p_col2:
-                st.markdown("**Live Movements Log**")
-                if not raw_movements.empty:
-                    st.dataframe(raw_movements.head(8), use_container_width=True, hide_index=True)
-        else:
-            st.info("No active catalog available.")
-
-    # 7. PO DISPATCH
-    elif st.session_state.right_nav_tab == "po_dispatch":
-        st.markdown("##### **✉️ Autonomous Purchase Order Dispatch Center**")
-        if not analytics_df.empty:
-            po_items = analytics_df[analytics_df["suggested_po_qty"] > 0]
-            if po_items.empty:
-                st.success("All inventory lines operating within safety parameters.")
+        e_col1, e_col2 = st.columns(2)
+        with e_col1:
+            st.markdown("**Numerical Feature Distributions**")
+            num_df = pd.DataFrame(eda_results["numerical_stats"]).T
+            num_df.index.name = "Metric"
+            st.dataframe(num_df.reset_index(), use_container_width=True, hide_index=True)
+        with e_col2:
+            st.markdown("**Data Hygiene & Anomaly Screening**")
+            dup_s = eda_results['duplicates']['duplicate_skus']
+            dup_t = eda_results['duplicates']['duplicate_transactions']
+            st.markdown(f"• **Duplicate Primary Barcodes:** `{'None (100% Unique)' if dup_s == 0 else f'{dup_s} conflicts'}`")
+            st.markdown(f"• **Duplicate Sales Events:** `{'None (Clean)' if dup_t == 0 else f'{dup_t} duplicates'}`")
+            if eda_results["data_quality"]:
+                for dq in eda_results["data_quality"]:
+                    st.error(f"⚠️ {dq}")
             else:
-                st.warning(f"Restock threshold breached on {len(po_items)} SKU(s).")
-                sel_v = st.selectbox("Group by Supplier", po_items["vendor"].unique())
-                v_orders = po_items[po_items["vendor"] == sel_v]
-                tgt_mail = v_orders["email"].iloc[0] if "email" in v_orders.columns else ""
-                rcpt = st.text_input("Dispatch Recipient Email", value=tgt_mail, placeholder="supplier@domain.com")
-                
-                po_text = f"PURCHASE ORDER: INVENTRO.AI RESTOCK\nSupplier: {sel_v}\nCurrency: {c_code} ({c_sym.strip()})\n" + "-"*50 + "\n"
-                for _, r in v_orders.iterrows():
-                    po_text += f"{r['sku']:<12} | {r['name'][:20]:<20} | Stock: {r['stock']} | Order: {r['suggested_po_qty']} units\n"
-                st.text_area("PO Payload Preview", value=po_text, height=180)
-                
-                if st.button("TRANSMIT PURCHASE ORDER VIA TLS", type="primary"):
-                    if not current_user.get("smtp_sender") or not current_user.get("smtp_password"):
-                        st.error("Configure SMTP credentials in the Operator Profile tab.")
-                    else:
-                        try:
-                            msg = MIMEMultipart()
-                            msg["From"] = current_user["smtp_sender"]
-                            msg["To"] = rcpt
-                            msg["Subject"] = f"PO RESTOCK ORDER - {sel_v}"
-                            msg.attach(MIMEText(po_text, "plain"))
-                            srv = smtplib.SMTP(current_user["smtp_server"], int(current_user["smtp_port"]), timeout=15)
-                            srv.starttls()
-                            srv.login(current_user["smtp_sender"], current_user["smtp_password"])
-                            srv.send_message(msg)
-                            srv.quit()
-                            st.success(f"Purchase order transmitted to {rcpt}!")
-                        except Exception as m_err:
-                            st.error(f"SMTP Error: {m_err}")
-        else:
-            st.info("Database not connected.")
+                st.success("✅ Clean Pipeline: Zero negative stock or future date leakage detected.")
 
-    # 8. DB TERMINAL
-    elif st.session_state.right_nav_tab == "db_terminal":
-        st.markdown("##### **🔌 Autonomous Copilot & Database Terminal**")
-        i_c1, i_c2 = st.columns([1.2, 1])
+# 5. INVENTORY CATALOG
+elif st.session_state.active_page == "catalog":
+    st.markdown("##### **📦 Real-Time Catalog & ABC-XYZ Pareto Matrix**")
+    if not analytics_df.empty:
+        search_q = st.text_input("Filter Catalog by Name, SKU, or Category:", placeholder="Search catalog...")
+        filtered_df = analytics_df.copy()
+        if search_q:
+            filtered_df = filtered_df[
+                filtered_df["name"].str.contains(search_q, case=False, na=False) |
+                filtered_df["sku"].str.contains(search_q, case=False, na=False) |
+                filtered_df["category"].str.contains(search_q, case=False, na=False)
+            ]
+        cols_show = ["sku", "name", "category", "stock", "lead_time", "daily_velocity", "rop", "days_runway", "reorder_status", "abc_class", "suggested_po_qty", "vendor"]
+        st.dataframe(filtered_df[[c for c in cols_show if c in filtered_df.columns]], use_container_width=True, hide_index=True)
+    else:
+        st.info("No catalog data online.")
 
-        with i_c1:
-            st.markdown("**💬 Luna AI Copilot (GPT-5.6 Luna)**")
-            if "chat_messages" not in st.session_state:
-                st.session_state.chat_messages = [
-                    {"role": "assistant", "content": f"Telemetry stream online in {c_code} ({c_sym.strip()}). Ask me about runway, supplier delays, or restock prioritizations."}
-                ]
-            for msg in st.session_state.chat_messages:
-                with st.chat_message(msg["role"]):
-                    st.markdown(msg["content"])
+# 6. RISK AND GOVERNANCE
+elif st.session_state.active_page == "risk_gov":
+    st.markdown("##### **🛡️ Autonomous Risk & Compliance Radar**")
+    st.caption("Heuristic detection of lead-time variances, stockout vulnerability, and cold-chain perishability.")
 
-            if user_prompt := st.chat_input("Query stock levels, ROP breaches, or restocks..."):
-                st.session_state.chat_messages.append({"role": "user", "content": user_prompt})
-                with st.chat_message("user"):
-                    st.markdown(user_prompt)
-                with st.chat_message("assistant"):
-                    with st.spinner("Analyzing operational telemetry..."):
-                        ai_answer = intelligent_ai_agent(user_prompt, analytics_df, eda_results)
-                        st.markdown(ai_answer)
-                st.session_state.chat_messages.append({"role": "assistant", "content": ai_answer})
+    col_g1, col_g2, col_g3, col_g4 = st.columns(4)
+    col_g1.metric("Compliance Rating", "98/100", "+2 pts")
+    col_g2.metric("Critical Stockout Risks", restock_needed, "-1 resolving")
+    col_g3.metric("Shelf-Life Decay Alerts", perish_alert, "Action required")
+    col_g4.metric("Vendor Reliability Score", "96.4%", "Stable")
 
-        with i_c2:
-            st.markdown("**Database Provisioning & SQL Terminal**")
-            if st.button("PROVISION PRODUCTION SCHEMAS"):
+    st.divider()
+    r_col1, r_col2 = st.columns([1.2, 1])
+
+    with r_col1:
+        st.markdown("**Perishability Horizon Breakdown**")
+        if not analytics_df.empty:
+            perish_items = analytics_df[analytics_df["expiry_days"] <= 14][["sku", "name", "category", "stock", "expiry_days", "vendor"]]
+            if not perish_items.empty:
+                st.dataframe(perish_items, use_container_width=True, hide_index=True)
+            else:
+                st.success("✨ Zero items within critical 14-day expiration window.")
+
+    with r_col2:
+        st.markdown("**Vendor SLA Compliance Watch**")
+        if not analytics_df.empty:
+            vendor_lead_times = analytics_df.groupby("vendor")["lead_time"].mean().reset_index()
+            vendor_lead_times.columns = ["Supplier", "Avg Turnaround (Days)"]
+            st.dataframe(vendor_lead_times, use_container_width=True, hide_index=True)
+
+# 7. POS SCAN INTAKE
+elif st.session_state.active_page == "pos_scan":
+    st.markdown("##### **⚡ Point-of-Sale Checkout & Receiving Terminal**")
+    if not analytics_df.empty:
+        p_col1, p_col2 = st.columns([1, 1.4])
+        with p_col1:
+            selected_sku = st.selectbox("Scan or Select SKU / Barcode", analytics_df["sku"].tolist())
+            sku_row = analytics_df[analytics_df["sku"] == selected_sku].iloc[0]
+            action = st.radio("Movement Operation:", ["📥 Stock IN (Receive)", "⚡ POS Checkout (Sale)", "📤 Stock OUT (Write-off)"], horizontal=True)
+            units = st.number_input("Unit Count", min_value=1, step=1, value=1)
+            
+            st.markdown(f"**Item:** `{sku_row['name']}` | **Current Stock:** `{sku_row['stock']}` | **ROP:** `{sku_row['rop']}`")
+
+            if st.button("COMMIT TRANSACTION TO DB", type="primary", use_container_width=True):
                 if is_connected:
                     try:
+                        stock_col = prod_map.get("stock", "stock")
+                        sku_col = prod_map.get("sku", "sku")
                         with engine.begin() as conn:
-                            conn.execute(text("CREATE TABLE IF NOT EXISTS products_master (sku VARCHAR(50) PRIMARY KEY, name VARCHAR(150), category VARCHAR(50), stock INT DEFAULT 0, lead_time INT DEFAULT 2, moq INT DEFAULT 1, pack_size INT DEFAULT 1, vendor VARCHAR(100), email VARCHAR(100), expiry_days INT DEFAULT 30, price NUMERIC DEFAULT 100.0);"))
-                            conn.execute(text("CREATE TABLE IF NOT EXISTS sales_ledger (id SERIAL PRIMARY KEY, transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sku VARCHAR(50), product_name VARCHAR(150), category VARCHAR(50), quantity_sold INT DEFAULT 1, is_weekend INT DEFAULT 0);"))
-                            conn.execute(text("CREATE TABLE IF NOT EXISTS stock_movements (id SERIAL PRIMARY KEY, movement_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sku VARCHAR(50), movement_type VARCHAR(50), quantity INT, notes VARCHAR(255));"))
-                        st.success("Schemas initialized successfully.")
+                            if "Stock IN" in action:
+                                conn.execute(text(f"UPDATE products_master SET {stock_col} = {stock_col} + :qty WHERE {sku_col} = :sku"), {"qty": units, "sku": selected_sku})
+                                conn.execute(text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'STOCK_IN', :qty, 'Intake delivery')"), {"ts": datetime.now(), "sku": selected_sku, "qty": units})
+                                st.toast(f"Committed +{units}x {sku_row['name']}", icon="📥")
+                            elif "POS Checkout" in action:
+                                res = conn.execute(text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku AND {stock_col} >= :qty"), {"qty": units, "sku": selected_sku})
+                                if res.rowcount == 0:
+                                    st.error("Transaction Aborted: Insufficient stock!")
+                                else:
+                                    conn.execute(text("INSERT INTO sales_ledger (transaction_date, sku, product_name, category, quantity_sold, is_weekend) VALUES (:tdate, :sku, :name, :cat, :qty, :wkd)"), {"tdate": datetime.now(), "sku": selected_sku, "name": sku_row["name"], "cat": sku_row["category"], "qty": units, "wkd": 1 if datetime.now().weekday() >= 5 else 0})
+                                    conn.execute(text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'POS_SCAN', :qty, 'Live register checkout')"), {"ts": datetime.now(), "sku": selected_sku, "qty": -units})
+                                    st.toast(f"Sold -{units}x {sku_row['name']}", icon="🛒")
                         st.rerun()
-                    except Exception as p_err:
-                        st.error(f"Provisioning error: {p_err}")
+                    except Exception as err:
+                        st.error(f"Transaction failed: {err}")
                 else:
-                    st.error("Connect to a database first.")
+                    st.error("Database connection offline.")
+        with p_col2:
+            st.markdown("**Live Movements Log**")
+            if not raw_movements.empty:
+                st.dataframe(raw_movements.head(8), use_container_width=True, hide_index=True)
+    else:
+        st.info("No active catalog available.")
 
-            sql_input = st.text_area("SQL Command Terminal", placeholder="SELECT * FROM products_master LIMIT 5;")
-            if st.button("EXECUTE QUERY"):
-                if sql_input and is_connected:
+# 8. PO DISPATCH
+elif st.session_state.active_page == "po_dispatch":
+    st.markdown("##### **✉️ Autonomous Purchase Order Dispatch Center**")
+    if not analytics_df.empty:
+        po_items = analytics_df[analytics_df["suggested_po_qty"] > 0]
+        if po_items.empty:
+            st.success("All inventory lines operating within safety parameters.")
+        else:
+            st.warning(f"Restock threshold breached on {len(po_items)} SKU(s).")
+            sel_v = st.selectbox("Group by Supplier", po_items["vendor"].unique())
+            v_orders = po_items[po_items["vendor"] == sel_v]
+            tgt_mail = v_orders["email"].iloc[0] if "email" in v_orders.columns else ""
+            rcpt = st.text_input("Dispatch Recipient Email", value=tgt_mail, placeholder="supplier@domain.com")
+            
+            po_text = f"PURCHASE ORDER: INVENTRO.AI RESTOCK\nSupplier: {sel_v}\nCurrency: {c_code} ({c_sym.strip()})\n" + "-"*50 + "\n"
+            for _, r in v_orders.iterrows():
+                po_text += f"{r['sku']:<12} | {r['name'][:20]:<20} | Stock: {r['stock']} | Order: {r['suggested_po_qty']} units\n"
+            st.text_area("PO Payload Preview", value=po_text, height=180)
+            
+            if st.button("TRANSMIT PURCHASE ORDER VIA TLS", type="primary"):
+                if not current_user.get("smtp_sender") or not current_user.get("smtp_password"):
+                    st.error("Configure SMTP credentials in the Operator Profile tab.")
+                else:
                     try:
-                        with engine.connect() as conn:
-                            st.dataframe(pd.read_sql(text(sql_input), conn), use_container_width=True)
-                    except Exception as q_err:
-                        st.error(f"Query error: {q_err}")
+                        msg = MIMEMultipart()
+                        msg["From"] = current_user["smtp_sender"]
+                        msg["To"] = rcpt
+                        msg["Subject"] = f"PO RESTOCK ORDER - {sel_v}"
+                        msg.attach(MIMEText(po_text, "plain"))
+                        srv = smtplib.SMTP(current_user["smtp_server"], int(current_user["smtp_port"]), timeout=15)
+                        srv.starttls()
+                        srv.login(current_user["smtp_sender"], current_user["smtp_password"])
+                        srv.send_message(msg)
+                        srv.quit()
+                        st.success(f"Purchase order transmitted to {rcpt}!")
+                    except Exception as m_err:
+                        st.error(f"SMTP Error: {m_err}")
+    else:
+        st.info("Database not connected.")
+
+# 9. DB TERMINAL
+elif st.session_state.active_page == "db_terminal":
+    st.markdown("##### **🔌 Autonomous Copilot & Database Terminal**")
+    i_c1, i_c2 = st.columns([1.2, 1])
+
+    with i_c1:
+        st.markdown("**💬 Luna AI Copilot (GPT-5.6 Luna)**")
+        if "chat_messages" not in st.session_state:
+            st.session_state.chat_messages = [
+                {"role": "assistant", "content": f"Telemetry stream online in {c_code} ({c_sym.strip()}). Ask me about runway, supplier delays, or restock prioritizations."}
+            ]
+        for msg in st.session_state.chat_messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+
+        if user_prompt := st.chat_input("Query stock levels, ROP breaches, or restocks..."):
+            st.session_state.chat_messages.append({"role": "user", "content": user_prompt})
+            with st.chat_message("user"):
+                st.markdown(user_prompt)
+            with st.chat_message("assistant"):
+                with st.spinner("Analyzing operational telemetry..."):
+                    ai_answer = intelligent_ai_agent(user_prompt, analytics_df, eda_results)
+                    st.markdown(ai_answer)
+            st.session_state.chat_messages.append({"role": "assistant", "content": ai_answer})
+
+    with i_c2:
+        st.markdown("**Database Provisioning & SQL Terminal**")
+        if st.button("PROVISION PRODUCTION SCHEMAS"):
+            if is_connected:
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("CREATE TABLE IF NOT EXISTS products_master (sku VARCHAR(50) PRIMARY KEY, name VARCHAR(150), category VARCHAR(50), stock INT DEFAULT 0, lead_time INT DEFAULT 2, moq INT DEFAULT 1, pack_size INT DEFAULT 1, vendor VARCHAR(100), email VARCHAR(100), expiry_days INT DEFAULT 30, price NUMERIC DEFAULT 100.0);"))
+                        conn.execute(text("CREATE TABLE IF NOT EXISTS sales_ledger (id SERIAL PRIMARY KEY, transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sku VARCHAR(50), product_name VARCHAR(150), category VARCHAR(50), quantity_sold INT DEFAULT 1, is_weekend INT DEFAULT 0);"))
+                        conn.execute(text("CREATE TABLE IF NOT EXISTS stock_movements (id SERIAL PRIMARY KEY, movement_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sku VARCHAR(50), movement_type VARCHAR(50), quantity INT, notes VARCHAR(255));"))
+                    st.success("Schemas initialized successfully.")
+                    st.rerun()
+                except Exception as p_err:
+                    st.error(f"Provisioning error: {p_err}")
+            else:
+                st.error("Connect to a database first.")
+
+        sql_input = st.text_area("SQL Command Terminal", placeholder="SELECT * FROM products_master LIMIT 5;")
+        if st.button("EXECUTE QUERY"):
+            if sql_input and is_connected:
+                try:
+                    with engine.connect() as conn:
+                        st.dataframe(pd.read_sql(text(sql_input), conn), use_container_width=True)
+                except Exception as q_err:
+                    st.error(f"Query error: {q_err}")
