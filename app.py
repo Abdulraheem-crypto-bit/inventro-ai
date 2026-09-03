@@ -55,14 +55,6 @@ st.markdown("""
         line-height: 1.6;
         white-space: pre-wrap;
     }
-    .auth-container {
-        max-width: 480px;
-        margin: 40px auto;
-        padding: 30px;
-        background: rgba(15, 23, 42, 0.9);
-        border: 1px solid rgba(99, 102, 241, 0.3);
-        border-radius: 16px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -79,6 +71,12 @@ def init_vault_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
+            db_dialect TEXT DEFAULT 'PostgreSQL',
+            db_host TEXT DEFAULT '',
+            db_port TEXT DEFAULT '5432',
+            db_name TEXT DEFAULT '',
+            db_user TEXT DEFAULT '',
+            db_pass TEXT DEFAULT '',
             db_uri TEXT DEFAULT '',
             groq_api_key TEXT DEFAULT '',
             smtp_server TEXT DEFAULT '',
@@ -88,6 +86,19 @@ def init_vault_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # Automatic migration if upgrading existing database
+    existing_cols = [row[1] for row in c.execute("PRAGMA table_info(users)").fetchall()]
+    migration_fields = [
+        ("db_dialect", "TEXT DEFAULT 'PostgreSQL'"),
+        ("db_host", "TEXT DEFAULT ''"),
+        ("db_port", "TEXT DEFAULT '5432'"),
+        ("db_name", "TEXT DEFAULT ''"),
+        ("db_user", "TEXT DEFAULT ''"),
+        ("db_pass", "TEXT DEFAULT ''")
+    ]
+    for col, col_type in migration_fields:
+        if col not in existing_cols:
+            c.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
     conn.commit()
     conn.close()
 
@@ -113,7 +124,8 @@ def verify_user(email: str, password: str):
     conn = sqlite3.connect(VAULT_DB)
     c = conn.cursor()
     c.execute("""
-        SELECT id, email, db_uri, groq_api_key, smtp_server, smtp_port, smtp_sender, smtp_password
+        SELECT id, email, db_dialect, db_host, db_port, db_name, db_user, db_pass, db_uri, 
+               groq_api_key, smtp_server, smtp_port, smtp_sender, smtp_password
         FROM users WHERE email = ? AND password_hash = ?
     """, (email.strip().lower(), hash_pw(password)))
     row = c.fetchone()
@@ -122,23 +134,30 @@ def verify_user(email: str, password: str):
         return {
             "id": row[0],
             "email": row[1],
-            "db_uri": row[2] or "",
-            "groq_api_key": row[3] or "",
-            "smtp_server": row[4] or "",
-            "smtp_port": row[5] or 587,
-            "smtp_sender": row[6] or "",
-            "smtp_password": row[7] or ""
+            "db_dialect": row[2] or "PostgreSQL",
+            "db_host": row[3] or "",
+            "db_port": row[4] or "5432",
+            "db_name": row[5] or "",
+            "db_user": row[6] or "",
+            "db_pass": row[7] or "",
+            "db_uri": row[8] or "",
+            "groq_api_key": row[9] or "",
+            "smtp_server": row[10] or "",
+            "smtp_port": row[11] or 587,
+            "smtp_sender": row[12] or "",
+            "smtp_password": row[13] or ""
         }
     return None
 
-def save_user_credentials(user_id: int, db_uri: str, groq_key: str, smtp_srv: str, smtp_prt: int, smtp_snd: str, smtp_pwd: str):
+def save_user_credentials(user_id: int, dialect: str, host: str, port: str, dbname: str, user: str, pwd: str, uri: str, groq_key: str, smtp_srv: str, smtp_prt: int, smtp_snd: str, smtp_pwd: str):
     conn = sqlite3.connect(VAULT_DB)
     c = conn.cursor()
     c.execute("""
         UPDATE users
-        SET db_uri = ?, groq_api_key = ?, smtp_server = ?, smtp_port = ?, smtp_sender = ?, smtp_password = ?
+        SET db_dialect = ?, db_host = ?, db_port = ?, db_name = ?, db_user = ?, db_pass = ?, db_uri = ?,
+            groq_api_key = ?, smtp_server = ?, smtp_port = ?, smtp_sender = ?, smtp_password = ?
         WHERE id = ?
-    """, (db_uri, groq_key, smtp_srv, smtp_prt, smtp_snd, smtp_pwd, user_id))
+    """, (dialect, host, port, dbname, user, pwd, uri, groq_key, smtp_srv, smtp_prt, smtp_snd, smtp_pwd, user_id))
     conn.commit()
     conn.close()
 
@@ -150,7 +169,7 @@ if "authenticated_user" not in st.session_state:
 
 if not st.session_state.authenticated_user:
     st.markdown("<h2 style='text-align: center;'>⚡ inventro.ai</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #94a3b8;'>Secure Retail OS & Inventory Intelligence Portal</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #94a3b8;'>Autonomous Retail OS & Intelligence Portal</p>", unsafe_allow_html=True)
     
     auth_col1, auth_col2, auth_col3 = st.columns([1, 1.2, 1])
     with auth_col2:
@@ -194,7 +213,7 @@ if not st.session_state.authenticated_user:
                         st.error(msg)
     st.stop()
 
-# User is authenticated
+# Active logged in session
 current_user = st.session_state.authenticated_user
 
 # ==========================================
@@ -255,7 +274,7 @@ def resolve_and_normalize(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     return normalized_df, detected_mapping
 
 # ==========================================
-# DATABASE CONNECTION HANDLER
+# UNIVERSAL DATABASE CONNECTION HANDLER
 # ==========================================
 @st.cache_resource(show_spinner=False)
 def get_db_engine(connection_string: str):
@@ -276,7 +295,7 @@ def get_db_engine(connection_string: str):
         return None
 
 # ==========================================
-# SIDEBAR CONFIGURATION (AUTO-LOADED PROFILE)
+# SIDEBAR CONFIGURATION (DISCRETE CREDENTIALS)
 # ==========================================
 with st.sidebar:
     st.markdown(f"👤 **{current_user['email']}**")
@@ -290,12 +309,53 @@ with st.sidebar:
     st.divider()
 
     st.markdown("**1. Database Configuration**")
-    db_uri_input = st.text_input(
-        "PostgreSQL / Neon Connection URL",
-        value=current_user["db_uri"],
-        placeholder="postgresql://user:pass@ep-xyz.aws.neon.tech/neondb?sslmode=require",
-        type="password"
-    )
+    db_input_mode = st.radio("Configuration Mode:", ["Full Credentials Form", "Direct Connection URL"], horizontal=True)
+
+    dialect_list = ["PostgreSQL / Neon", "MySQL", "MariaDB", "MS SQL Server", "SQLite", "Custom / Direct"]
+    default_dialect_idx = 0
+    if current_user["db_dialect"] in dialect_list:
+        default_dialect_idx = dialect_list.index(current_user["db_dialect"])
+
+    active_db_uri = ""
+
+    if db_input_mode == "Full Credentials Form":
+        selected_dialect = st.selectbox("Database Engine", dialect_list, index=default_dialect_idx)
+        
+        db_host = st.text_input("Host", value=current_user["db_host"], placeholder="e.g. ep-xyz.aws.neon.tech or localhost")
+        
+        default_port = current_user["db_port"]
+        if not default_port:
+            default_port = "5432" if "PostgreSQL" in selected_dialect else ("3306" if "MySQL" in selected_dialect or "MariaDB" in selected_dialect else ("1433" if "SQL Server" in selected_dialect else ""))
+        db_port = st.text_input("Port", value=default_port, placeholder="e.g. 5432")
+        
+        db_name = st.text_input("Database Name", value=current_user["db_name"], placeholder="e.g. neondb")
+        db_user = st.text_input("Username", value=current_user["db_user"], placeholder="e.g. neondb_owner")
+        db_pass = st.text_input("Password", value=current_user["db_pass"], placeholder="••••••••", type="password")
+
+        # Dynamically build URI without database type restrictions
+        if db_host and db_name:
+            clean_name = db_name.split("?")[0].strip()
+            if "PostgreSQL" in selected_dialect:
+                active_db_uri = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port or '5432'}/{clean_name}?sslmode=require"
+            elif "MySQL" in selected_dialect:
+                active_db_uri = f"mysql+pymysql://{db_user}:{db_pass}@{db_host}:{db_port or '3306'}/{clean_name}"
+            elif "MariaDB" in selected_dialect:
+                active_db_uri = f"mysql+pymysql://{db_user}:{db_pass}@{db_host}:{db_port or '3306'}/{clean_name}"
+            elif "SQL Server" in selected_dialect:
+                active_db_uri = f"mssql+pyodbc://{db_user}:{db_pass}@{db_host}:{db_port or '1433'}/{clean_name}?driver=ODBC+Driver+17+for+SQL+Server"
+            elif "SQLite" in selected_dialect:
+                active_db_uri = f"sqlite:///{clean_name}.db"
+            else:
+                active_db_uri = f"{db_user}:{db_pass}@{db_host}:{db_port}/{clean_name}"
+    else:
+        selected_dialect = "Direct URL"
+        db_host, db_port, db_name, db_user, db_pass = "", "", "", "", ""
+        active_db_uri = st.text_input(
+            "Connection URL / URI",
+            value=current_user["db_uri"],
+            placeholder="postgresql://user:pass@host:5432/dbname?sslmode=require",
+            type="password"
+        )
 
     st.divider()
     st.markdown("**2. AI Engine (Groq / Llama 3.3)**")
@@ -318,24 +378,40 @@ with st.sidebar:
     if st.button("💾 Save Credentials to Profile", type="primary", use_container_width=True):
         save_user_credentials(
             current_user["id"],
-            db_uri_input,
+            selected_dialect,
+            db_host,
+            db_port,
+            db_name,
+            db_user,
+            db_pass,
+            active_db_uri,
             groq_key_input,
             smtp_server,
             smtp_port,
             smtp_sender,
             smtp_password
         )
-        current_user["db_uri"] = db_uri_input
-        current_user["groq_api_key"] = groq_key_input
-        current_user["smtp_server"] = smtp_server
-        current_user["smtp_port"] = smtp_port
-        current_user["smtp_sender"] = smtp_sender
-        current_user["smtp_password"] = smtp_password
-        st.toast("Credentials saved! They will auto-load whenever you log in.", icon="💾")
+        current_user.update({
+            "db_dialect": selected_dialect,
+            "db_host": db_host,
+            "db_port": db_port,
+            "db_name": db_name,
+            "db_user": db_user,
+            "db_pass": db_pass,
+            "db_uri": active_db_uri,
+            "groq_api_key": groq_key_input,
+            "smtp_server": smtp_server,
+            "smtp_port": smtp_port,
+            "smtp_sender": smtp_sender,
+            "smtp_password": smtp_password
+        })
+        st.toast("Credentials saved! They will auto-load when you log in.", icon="💾")
 
     sync_btn = st.button("🔄 Sync Database Feed", use_container_width=True)
 
-engine = get_db_engine(db_uri_input) if db_uri_input else None
+# Connection resolution
+final_connection_uri = active_db_uri if active_db_uri else current_user["db_uri"]
+engine = get_db_engine(final_connection_uri) if final_connection_uri else None
 is_connected = engine is not None
 
 if is_connected:
@@ -424,7 +500,7 @@ def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, custom_key: str)
     if not active_key:
         return (
             "🔑 **Groq API Key Required:**\n\n"
-            "Please paste your free Groq API key in the sidebar and click **'💾 Save Credentials to Profile'**.\n"
+            "Please paste your free Groq API key in the sidebar under **'2. AI Engine (Groq / Llama 3.3)'**.\n"
             "*Get a free key in 30 seconds at [console.groq.com/keys](https://console.groq.com/keys).*"
         )
 
