@@ -14,10 +14,17 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine, text, inspect
+from sqlalchemy.exc import SQLAlchemyError
 
-# OpenAI SDK for GPT-5.6 Luna
+# OpenAI SDK & Exception Handling
 try:
-    from openai import OpenAI
+    from openai import (
+        OpenAI, 
+        AuthenticationError as OpenAIAuthError, 
+        RateLimitError as OpenAIRateError, 
+        APIConnectionError as OpenAIConnError, 
+        BadRequestError as OpenAIBadRequest
+    )
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
@@ -60,47 +67,57 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# SQLITE AUTHENTICATION & CREDENTIAL VAULT
+# 1. HARDENED SQLITE VAULT (WAL & TIMEOUTS)
 # ==========================================
 VAULT_DB = "users_vault.db"
 
+def get_vault_connection():
+    """Provides a thread-safe, concurrency-resilient SQLite connection."""
+    conn = sqlite3.connect(VAULT_DB, timeout=30.0, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=10000;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    return conn
+
 def init_vault_db():
-    conn = sqlite3.connect(VAULT_DB)
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            db_dialect TEXT DEFAULT 'PostgreSQL / Neon',
-            db_host TEXT DEFAULT '',
-            db_port TEXT DEFAULT '5432',
-            db_name TEXT DEFAULT '',
-            db_user TEXT DEFAULT '',
-            db_pass TEXT DEFAULT '',
-            db_uri TEXT DEFAULT '',
-            smtp_server TEXT DEFAULT '',
-            smtp_port INTEGER DEFAULT 587,
-            smtp_sender TEXT DEFAULT '',
-            smtp_password TEXT DEFAULT '',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    existing_cols = [row[1] for row in c.execute("PRAGMA table_info(users)").fetchall()]
-    migration_fields = [
-        ("db_dialect", "TEXT DEFAULT 'PostgreSQL / Neon'"),
-        ("db_host", "TEXT DEFAULT ''"),
-        ("db_port", "TEXT DEFAULT '5432'"),
-        ("db_name", "TEXT DEFAULT ''"),
-        ("db_user", "TEXT DEFAULT ''"),
-        ("db_pass", "TEXT DEFAULT ''"),
-        ("db_uri", "TEXT DEFAULT ''")
-    ]
-    for col, col_type in migration_fields:
-        if col not in existing_cols:
-            c.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
-    conn.commit()
-    conn.close()
+    try:
+        with get_vault_connection() as conn:
+            c = conn.cursor()
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    db_dialect TEXT DEFAULT 'PostgreSQL / Neon',
+                    db_host TEXT DEFAULT '',
+                    db_port TEXT DEFAULT '5432',
+                    db_name TEXT DEFAULT '',
+                    db_user TEXT DEFAULT '',
+                    db_pass TEXT DEFAULT '',
+                    db_uri TEXT DEFAULT '',
+                    smtp_server TEXT DEFAULT '',
+                    smtp_port INTEGER DEFAULT 587,
+                    smtp_sender TEXT DEFAULT '',
+                    smtp_password TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            existing_cols = [row[1] for row in c.execute("PRAGMA table_info(users)").fetchall()]
+            migration_fields = [
+                ("db_dialect", "TEXT DEFAULT 'PostgreSQL / Neon'"),
+                ("db_host", "TEXT DEFAULT ''"),
+                ("db_port", "TEXT DEFAULT '5432'"),
+                ("db_name", "TEXT DEFAULT ''"),
+                ("db_user", "TEXT DEFAULT ''"),
+                ("db_pass", "TEXT DEFAULT ''"),
+                ("db_uri", "TEXT DEFAULT ''")
+            ]
+            for col, col_type in migration_fields:
+                if col not in existing_cols:
+                    c.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
+            conn.commit()
+    except Exception as err:
+        st.error(f"Vault Initialization Exception: {err}")
 
 init_vault_db()
 
@@ -108,57 +125,62 @@ def hash_pw(password: str) -> str:
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
 def create_user_account(email: str, password: str) -> tuple[bool, str]:
+    clean_email = email.strip().lower()
     try:
-        conn = sqlite3.connect(VAULT_DB)
-        c = conn.cursor()
-        c.execute("INSERT INTO users (email, password_hash) VALUES (?, ?)", (email.strip().lower(), hash_pw(password)))
-        conn.commit()
-        conn.close()
-        return True, "Account registered successfully!"
+        with get_vault_connection() as conn:
+            c = conn.cursor()
+            c.execute("INSERT INTO users (email, password_hash) VALUES (?, ?)", (clean_email, hash_pw(password)))
+            conn.commit()
+            return True, "Account registered successfully!"
     except sqlite3.IntegrityError:
         return False, "An account with this email already exists."
     except Exception as e:
-        return False, str(e)
+        return False, f"Vault write failure: {str(e)}"
 
 def verify_user(email: str, password: str):
-    conn = sqlite3.connect(VAULT_DB)
-    c = conn.cursor()
-    c.execute("""
-        SELECT id, email, db_dialect, db_host, db_port, db_name, db_user, db_pass, db_uri, 
-               smtp_server, smtp_port, smtp_sender, smtp_password
-        FROM users WHERE email = ? AND password_hash = ?
-    """, (email.strip().lower(), hash_pw(password)))
-    row = c.fetchone()
-    conn.close()
-    if row:
-        return {
-            "id": row[0],
-            "email": row[1],
-            "db_dialect": row[2] or "PostgreSQL / Neon",
-            "db_host": row[3] or "",
-            "db_port": row[4] or "5432",
-            "db_name": row[5] or "",
-            "db_user": row[6] or "",
-            "db_pass": row[7] or "",
-            "db_uri": row[8] or "",
-            "smtp_server": row[9] or "",
-            "smtp_port": row[10] or 587,
-            "smtp_sender": row[11] or "",
-            "smtp_password": row[12] or ""
-        }
+    clean_email = email.strip().lower()
+    try:
+        with get_vault_connection() as conn:
+            c = conn.cursor()
+            c.execute("""
+                SELECT id, email, db_dialect, db_host, db_port, db_name, db_user, db_pass, db_uri, 
+                       smtp_server, smtp_port, smtp_sender, smtp_password
+                FROM users WHERE email = ? AND password_hash = ?
+            """, (clean_email, hash_pw(password)))
+            row = c.fetchone()
+            if row:
+                return {
+                    "id": row[0],
+                    "email": row[1],
+                    "db_dialect": row[2] or "PostgreSQL / Neon",
+                    "db_host": row[3] or "",
+                    "db_port": row[4] or "5432",
+                    "db_name": row[5] or "",
+                    "db_user": row[6] or "",
+                    "db_pass": row[7] or "",
+                    "db_uri": row[8] or "",
+                    "smtp_server": row[9] or "",
+                    "smtp_port": row[10] or 587,
+                    "smtp_sender": row[11] or "",
+                    "smtp_password": row[12] or ""
+                }
+    except Exception:
+        return None
     return None
 
 def save_user_credentials(user_id: int, dialect: str, host: str, port: str, dbname: str, user: str, pwd: str, uri: str, smtp_srv: str, smtp_prt: int, smtp_snd: str, smtp_pwd: str):
-    conn = sqlite3.connect(VAULT_DB)
-    c = conn.cursor()
-    c.execute("""
-        UPDATE users
-        SET db_dialect = ?, db_host = ?, db_port = ?, db_name = ?, db_user = ?, db_pass = ?, db_uri = ?,
-            smtp_server = ?, smtp_port = ?, smtp_sender = ?, smtp_password = ?
-        WHERE id = ?
-    """, (dialect, host, port, dbname, user, pwd, uri, smtp_srv, smtp_prt, smtp_snd, smtp_pwd, user_id))
-    conn.commit()
-    conn.close()
+    try:
+        with get_vault_connection() as conn:
+            c = conn.cursor()
+            c.execute("""
+                UPDATE users
+                SET db_dialect = ?, db_host = ?, db_port = ?, db_name = ?, db_user = ?, db_pass = ?, db_uri = ?,
+                    smtp_server = ?, smtp_port = ?, smtp_sender = ?, smtp_password = ?
+                WHERE id = ?
+            """, (dialect, host, port, dbname, user, pwd, uri, smtp_srv, smtp_prt, smtp_snd, smtp_pwd, user_id))
+            conn.commit()
+    except Exception as e:
+        st.sidebar.error(f"Failed to save credentials: {e}")
 
 # ==========================================
 # AUTHENTICATION GATEWAY
@@ -168,7 +190,7 @@ if "authenticated_user" not in st.session_state:
 
 if not st.session_state.authenticated_user:
     st.markdown("<h2 style='text-align: center;'>⚡ inventro.ai</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #94a3b8;'>Autonomous Retail OS & Dynamic Inventory Intelligence</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #94a3b8;'>Autonomous Retail Operating System & Inventory Intelligence</p>", unsafe_allow_html=True)
     
     auth_col1, auth_col2, auth_col3 = st.columns([1, 1.2, 1])
     with auth_col2:
@@ -192,14 +214,14 @@ if not st.session_state.authenticated_user:
                     st.warning("Please fill in both email and password.")
 
         with auth_tab_signup:
-            st.markdown("##### New Account Registration")
+            st.markdown("##### Register New User Profile")
             signup_email = st.text_input("Email", key="signup_email")
             signup_pass = st.text_input("Password", type="password", key="signup_pass")
             signup_pass2 = st.text_input("Confirm Password", type="password", key="signup_pass2")
             
             if st.button("Create ID & Vault", use_container_width=True):
                 if not signup_email or not signup_pass:
-                    st.warning("Please provide email and password.")
+                    st.warning("Please fill in all required fields.")
                 elif signup_pass != signup_pass2:
                     st.error("Passwords do not match.")
                 elif len(signup_pass) < 6:
@@ -207,7 +229,7 @@ if not st.session_state.authenticated_user:
                 else:
                     success, msg = create_user_account(signup_email, signup_pass)
                     if success:
-                        st.success("Account created! Please switch to the Sign In tab to log in.")
+                        st.success("Account created! Switch to Sign In to continue.")
                     else:
                         st.error(msg)
     st.stop()
@@ -215,7 +237,7 @@ if not st.session_state.authenticated_user:
 current_user = st.session_state.authenticated_user
 
 # ==========================================
-# DYNAMIC SCHEMA RESOLUTION & CLEANING
+# 2. SCHEMA NORMALIZATION & SANITIZATION
 # ==========================================
 COLUMN_SYNONYMS = {
     "sku": ["sku", "product_id", "productid", "item_id", "itemid", "item_code", "itemcode", "barcode", "code", "prod_id", "id"],
@@ -236,7 +258,6 @@ def clean_str(s: str) -> str:
     return re.sub(r'[\s_\-]+', '', str(s)).lower()
 
 def clean_numeric_series(series: pd.Series, default_val=0) -> pd.Series:
-    """Strips currency symbols, commas, non-numeric artifacts, and safely casts to numeric."""
     if series is None or series.empty:
         return pd.Series(default_val, dtype=float)
     cleaned = (
@@ -263,7 +284,6 @@ def resolve_and_normalize(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
                 normalized_df[canonical_key] = df[original_col]
                 break
 
-    # Numeric hardening: prevent type crashes during math operations
     numeric_defaults = {
         "stock": 0,
         "lead_time": 2,
@@ -278,7 +298,6 @@ def resolve_and_normalize(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         else:
             normalized_df[col] = def_val
 
-    # String fallbacks
     string_defaults = {
         "sku": [f"SKU_{i+1:03d}" for i in range(len(normalized_df))],
         "name": "Item",
@@ -295,10 +314,9 @@ def resolve_and_normalize(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     return normalized_df, detected_mapping
 
 # ==========================================
-# HARDENED DATABASE CONNECTION HANDLER
+# 3. ROBUST DATABASE CONNECTION ENGINE
 # ==========================================
 def sanitize_db_uri(raw_uri: str) -> str:
-    """Normalizes connection strings, strips redundant sslmode tags, and prevents clashes."""
     if not raw_uri or not raw_uri.strip():
         return ""
     
@@ -323,7 +341,6 @@ def get_db_engine(connection_string: str):
         return None
     try:
         connect_args = {}
-        # 15s timeout to allow cold-start serverless databases (e.g. Neon) to spin up
         if "postgresql" in sanitized_uri:
             connect_args = {"connect_timeout": 15}
 
@@ -337,11 +354,11 @@ def get_db_engine(connection_string: str):
             conn.execute(text("SELECT 1"))
         return engine
     except Exception as e:
-        st.sidebar.error(f"Connection Failed: {e}")
+        st.sidebar.error(f"Connection Error: {e}")
         return None
 
 # ==========================================
-# SIDEBAR CONFIGURATION (DISCRETE CREDENTIALS)
+# SIDEBAR CONFIGURATION (CLEAN & MINIMAL)
 # ==========================================
 with st.sidebar:
     st.markdown(f"👤 **{current_user.get('email', '')}**")
@@ -365,7 +382,6 @@ with st.sidebar:
 
     if db_input_mode == "Full Credentials Form":
         selected_dialect = st.selectbox("Database Engine", dialect_list, index=default_dialect_idx)
-        
         db_host = st.text_input("Host", value=current_user.get("db_host", ""), placeholder="e.g. ep-xyz.aws.neon.tech or localhost")
         
         default_port = current_user.get("db_port", "")
@@ -400,11 +416,7 @@ with st.sidebar:
         )
 
     st.divider()
-    st.markdown("**2. AI Engine**")
-    st.info("⚡ Powered by OpenAI **GPT-5.6 Luna** (`reasoning_effort='low'` via Streamlit Secrets)")
-
-    st.divider()
-    st.markdown("**3. SMTP Vendor Dispatcher**")
+    st.markdown("**2. SMTP Vendor Dispatcher**")
     smtp_server = st.text_input("SMTP Server", value=current_user.get("smtp_server", ""), placeholder="smtp.gmail.com")
     smtp_port = st.number_input("SMTP Port", min_value=1, max_value=65535, value=int(current_user.get("smtp_port") or 587))
     smtp_sender = st.text_input("Sender Email", value=current_user.get("smtp_sender", ""), placeholder="your-email@domain.com")
@@ -474,14 +486,16 @@ if is_connected:
             move_target = next((t for t in tables if "movement" in t.lower() or "audit" in t.lower() or "log" in t.lower()), None)
             if move_target:
                 raw_movements = pd.read_sql(text(f"SELECT * FROM {move_target} ORDER BY 1 DESC LIMIT 50"), conn)
+    except SQLAlchemyError as sql_err:
+        st.error(f"Database Read Notice: {sql_err}")
     except Exception as e:
-        st.error(f"Data Fetch Notice: {e}")
+        st.error(f"Ingestion Notice: {e}")
 
 df_products, prod_map = resolve_and_normalize(raw_products)
 df_sales, sales_map = resolve_and_normalize(raw_sales)
 
 # ==========================================
-# STATISTICAL LEARNING / ROP ENGINE
+# 4. STATISTICAL ENGINE (ZERO-DIVISION GUARDS)
 # ==========================================
 def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.DataFrame:
     if products_df.empty:
@@ -492,7 +506,7 @@ def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.D
     if not sales_df.empty and "sku" in sales_df.columns and "quantity_sold" in sales_df.columns:
         velocity_stats = sales_df.groupby("sku")["quantity_sold"].agg(
             daily_velocity="mean",
-            daily_volatility=lambda x: x.std(ddof=1) if len(x) > 1 else 0.5
+            daily_volatility=lambda x: float(x.std(ddof=1)) if len(x) > 1 else 0.5
         ).reset_index()
         matrix = matrix.merge(velocity_stats, on="sku", how="left")
     else:
@@ -502,12 +516,10 @@ def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.D
     matrix["daily_velocity"] = matrix["daily_velocity"].fillna(1.0).clip(lower=0.1)
     matrix["daily_volatility"] = matrix["daily_volatility"].fillna(0.5).clip(lower=0.1)
     
-    # 95% Confidence Interval (Z = 1.65)
     Z = 1.65
     matrix["safety_stock"] = np.ceil(Z * matrix["daily_volatility"] * np.sqrt(matrix["lead_time"].astype(float))).astype(int)
     matrix["rop"] = np.ceil((matrix["daily_velocity"] * matrix["lead_time"].astype(float)) + matrix["safety_stock"]).astype(int)
     
-    # Defensive zero-division guard
     matrix["days_runway"] = np.where(
         matrix["daily_velocity"] > 0,
         np.round(matrix["stock"] / matrix["daily_velocity"], 1),
@@ -530,10 +542,10 @@ def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.D
 analytics_df = compute_analytics(df_products, df_sales)
 
 # ==========================================
-# INTELLIGENT AI AGENT (OPENAI GPT-5.6 LUNA)
+# 5. OPENAI COPILOT (SERVER-SIDE SECRETS)
 # ==========================================
 def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame) -> str:
-    """Uses GPT-5.6 Luna with low reasoning effort via server-side OpenAI key."""
+    """Uses GPT-5.6 Luna with low reasoning effort, bounded tokens, and defensive error handling."""
     api_key = st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
 
     if not api_key:
@@ -546,9 +558,11 @@ def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame) -> str:
         return "⚠️ `openai` library is not installed. Add `openai` to your `requirements.txt`."
 
     try:
-        client = OpenAI(api_key=api_key)
+        client = OpenAI(api_key=api_key, timeout=30.0)
 
-        data_context = matrix[[
+        trimmed_matrix = matrix.sort_values(by=["reorder_status", "daily_velocity"], ascending=[False, False]).head(75)
+        
+        data_context = trimmed_matrix[[
             "sku", "name", "category", "stock", "lead_time", 
             "daily_velocity", "safety_stock", "rop", "days_runway", 
             "reorder_status", "expiry_days", "suggested_po_qty", "vendor"
@@ -558,7 +572,7 @@ def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame) -> str:
 You are the AI Brain of inventro.ai, an autonomous retail inventory OS.
 You have real-time access to the store's inventory database:
 
-CURRENT INVENTORY DATASET:
+CURRENT INVENTORY DATASET (Top Active Lines):
 {json.dumps(data_context, default=str)}
 
 GUIDELINES:
@@ -576,6 +590,14 @@ GUIDELINES:
             reasoning_effort="low"
         )
         return completion.choices[0].message.content
+    except OpenAIAuthError:
+        return "⚠️ **Authentication Error:** The OpenAI API key is invalid or expired. Check your Streamlit Secrets."
+    except OpenAIRateError:
+        return "⚠️ **Rate Limit Exceeded:** OpenAI account quota exceeded or requests throttled. Verify billing credits at platform.openai.com."
+    except OpenAIConnError:
+        return "⚠️ **Connection Error:** Unable to reach OpenAI servers. Please verify network connectivity."
+    except OpenAIBadRequest as bad_req:
+        return f"⚠️ **Bad Request Error:** {str(bad_req)}"
     except Exception as err:
         return f"⚠️ **AI Engine Error:** {str(err)}"
 
@@ -597,7 +619,7 @@ tab_agent, tab_analytics, tab_pos, tab_dispatcher, tab_infra = st.tabs([
 # TAB 1: AUTONOMOUS AI AGENT & CHATBOT
 # ------------------------------------------
 with tab_agent:
-    st.markdown("#### **🤖 Autonomous AI Supply Agent & Copilot (GPT-5.6 Luna)**")
+    st.markdown("#### **🤖 Autonomous AI Supply Agent & Copilot**")
     st.caption("Self-directed diagnostic loop analyzing stockout vectors, lead times, and decay risks in real time.")
     
     if analytics_df.empty:
@@ -638,7 +660,7 @@ with tab_agent:
         st.divider()
 
         st.markdown("#### **💬 Ask the AI Inventory Agent**")
-        st.caption("Ask questions in natural language. Powered by OpenAI GPT-5.6 Luna.")
+        st.caption("Ask questions in natural language.")
 
         if "chat_messages" not in st.session_state:
             st.session_state.chat_messages = [
@@ -674,7 +696,7 @@ with tab_analytics:
         st.dataframe(analytics_df[available_display_cols], use_container_width=True, hide_index=True)
 
 # ------------------------------------------
-# TAB 3: POS & INVENTORY MOVEMENT TERMINAL
+# TAB 3: POS TERMINAL (ATOMIC MUTATIONS)
 # ------------------------------------------
 with tab_pos:
     st.markdown("#### **⚡ Real-Time Stock Movement Terminal (In / Out / POS)**")
@@ -694,7 +716,7 @@ with tab_pos:
                 horizontal=True
             )
             
-            units_qty = st.number_input("Units Count", min_value=1, value=1)
+            units_qty = st.number_input("Units Count", min_value=1, step=1, value=1)
             
             st.markdown(f"""
             **Item:** `{sku_data['name']}`  
@@ -703,15 +725,14 @@ with tab_pos:
             **Active ROP:** `{sku_data['rop']} units`  
             """)
             
-            # 1. STOCK IN
             if "Stock IN" in action_type:
                 notes_in = st.text_input("Receipt Note / PO Reference", value="Vendor Delivery Intake")
                 if st.button("📥 Commit Stock IN (+ Units)", type="primary", use_container_width=True):
                     if is_connected:
                         try:
+                            stock_col = prod_map.get("stock", "stock")
+                            sku_col = prod_map.get("sku", "sku")
                             with engine.begin() as conn:
-                                stock_col = prod_map.get("stock", "stock")
-                                sku_col = prod_map.get("sku", "sku")
                                 conn.execute(
                                     text(f"UPDATE products_master SET {stock_col} = {stock_col} + :qty WHERE {sku_col} = :sku"),
                                     {"qty": units_qty, "sku": selected_sku}
@@ -730,21 +751,20 @@ with tab_pos:
                     else:
                         st.error("Database not connected.")
 
-            # 2. POS SCAN
             elif "POS Scan" in action_type:
                 if st.button("⚡ Execute POS Transaction (- Units)", type="primary", use_container_width=True):
                     if is_connected:
-                        if sku_data['stock'] < units_qty:
-                            st.error(f"Insufficient stock! Available: {sku_data['stock']} units.")
-                        else:
-                            try:
-                                with engine.begin() as conn:
-                                    stock_col = prod_map.get("stock", "stock")
-                                    sku_col = prod_map.get("sku", "sku")
-                                    conn.execute(
-                                        text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku"),
-                                        {"qty": units_qty, "sku": selected_sku}
-                                    )
+                        try:
+                            stock_col = prod_map.get("stock", "stock")
+                            sku_col = prod_map.get("sku", "sku")
+                            with engine.begin() as conn:
+                                result = conn.execute(
+                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku AND {stock_col} >= :qty"),
+                                    {"qty": units_qty, "sku": selected_sku}
+                                )
+                                if result.rowcount == 0:
+                                    st.error("Transaction Aborted: Insufficient physical stock or concurrent sale detected.")
+                                else:
                                     conn.execute(
                                         text("""
                                         INSERT INTO sales_ledger (transaction_date, sku, product_name, category, quantity_sold, is_weekend)
@@ -766,29 +786,28 @@ with tab_pos:
                                         """),
                                         {"ts": datetime.now(), "sku": selected_sku, "qty": -units_qty, "notes": "POS register sale"}
                                     )
-                                st.toast(f"✅ Deducted -{units_qty}x {sku_data['name']} from DB.", icon="🛒")
-                                st.rerun()
-                            except Exception as err:
-                                st.error(f"POS Transaction Failed: {err}")
+                                    st.toast(f"✅ Deducted -{units_qty}x {sku_data['name']} from DB.", icon="🛒")
+                                    st.rerun()
+                        except Exception as err:
+                            st.error(f"POS Transaction Failed: {err}")
                     else:
                         st.error("Database not connected.")
 
-            # 3. STOCK OUT
             elif "Stock OUT" in action_type:
                 out_reason = st.selectbox("Reason for Outflow", ["Damaged / Spoiled Goods", "Expired Shelf-Life", "Inventory Audit Shrinkage", "Internal Store Use"])
                 if st.button("📤 Commit Stock OUT (- Units)", type="primary", use_container_width=True):
                     if is_connected:
-                        if sku_data['stock'] < units_qty:
-                            st.error(f"Insufficient stock to write off! Available: {sku_data['stock']} units.")
-                        else:
-                            try:
-                                with engine.begin() as conn:
-                                    stock_col = prod_map.get("stock", "stock")
-                                    sku_col = prod_map.get("sku", "sku")
-                                    conn.execute(
-                                        text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku"),
-                                        {"qty": units_qty, "sku": selected_sku}
-                                    )
+                        try:
+                            stock_col = prod_map.get("stock", "stock")
+                            sku_col = prod_map.get("sku", "sku")
+                            with engine.begin() as conn:
+                                result = conn.execute(
+                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku AND {stock_col} >= :qty"),
+                                    {"qty": units_qty, "sku": selected_sku}
+                                )
+                                if result.rowcount == 0:
+                                    st.error("Write-Off Aborted: Available stock is insufficient to satisfy this quantity.")
+                                else:
                                     conn.execute(
                                         text("""
                                         INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes)
@@ -796,10 +815,10 @@ with tab_pos:
                                         """),
                                         {"ts": datetime.now(), "sku": selected_sku, "qty": -units_qty, "notes": out_reason}
                                     )
-                                st.toast(f"✅ Written off -{units_qty}x {sku_data['name']}.", icon="📤")
-                                st.rerun()
-                            except Exception as err:
-                                st.error(f"Stock OUT Failed: {err}")
+                                    st.toast(f"✅ Written off -{units_qty}x {sku_data['name']}.", icon="📤")
+                                    st.rerun()
+                        except Exception as err:
+                            st.error(f"Stock OUT Failed: {err}")
                     else:
                         st.error("Database not connected.")
         else:
@@ -849,10 +868,11 @@ with tab_dispatcher:
             st.text_area("Purchase Order Preview", value=po_payload, height=220)
             
             if st.button(f"✉️ Dispatch Purchase Order to {selected_vendor}", type="primary"):
+                email_regex = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
                 if not smtp_sender or not smtp_password:
                     st.error("Please configure SMTP Sender Email and App Password in the sidebar.")
-                elif not recipient_email or not recipient_email.strip():
-                    st.error("Please provide a valid recipient email address.")
+                elif not recipient_email or not re.match(email_regex, recipient_email.strip()):
+                    st.error("Please provide a valid recipient email address (e.g. name@domain.com).")
                 else:
                     try:
                         msg = MIMEMultipart()
@@ -861,13 +881,19 @@ with tab_dispatcher:
                         msg["Subject"] = f"URGENT: Purchase Order Restock - {selected_vendor} [{datetime.now().strftime('%Y-%m-%d')}]"
                         msg.attach(MIMEText(po_payload, "plain"))
                         
-                        server = smtplib.SMTP(smtp_server, int(smtp_port))
+                        server = smtplib.SMTP(smtp_server, int(smtp_port), timeout=15)
                         server.starttls()
                         server.login(smtp_sender, smtp_password)
                         server.send_message(msg)
                         server.quit()
                         
                         st.success(f"🚀 Purchase Order successfully dispatched via TLS to {recipient_email}!")
+                    except smtplib.SMTPAuthenticationError:
+                        st.error("SMTP Auth Failure: Gmail requires a dedicated 16-character App Password, not your standard account password.")
+                    except smtplib.SMTPConnectError:
+                        st.error("SMTP Connection Error: Unable to connect to host. Verify your SMTP Server and Port settings.")
+                    except TimeoutError:
+                        st.error("SMTP Timeout: Connection timed out. Check your firewall settings.")
                     except Exception as mail_err:
                         st.error(f"SMTP Dispatch Error: {mail_err}")
     else:
@@ -925,7 +951,7 @@ with tab_infra:
                         """))
                     st.success("✅ Clean relational schemas initialized successfully.")
                     st.rerun()
-                except Exception as p_err:
+                except SQLAlchemyError as p_err:
                     st.error(f"Provisioning Failed: {p_err}")
             else:
                 st.error("Connect to a database in the sidebar before provisioning.")
@@ -939,7 +965,7 @@ with tab_infra:
                     with engine.connect() as conn:
                         query_res = pd.read_sql(text(custom_sql), conn)
                         st.dataframe(query_res, use_container_width=True)
-                except Exception as q_err:
+                except SQLAlchemyError as q_err:
                     st.error(f"SQL Error: {q_err}")
             else:
                 st.warning("Please provide an active query and verify connection.")
