@@ -509,8 +509,8 @@ with st.sidebar:
         <div style='display: flex; align-items: center; gap: 10px; margin-bottom: 12px;'>
             <div style='width: 36px; height: 36px; border-radius: 10px; background: #00B2FF; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem; color: #FFF;'>⚡</div>
             <div>
-                <div style='font-weight: 700; font-size: 0.95rem; color: #FFF;'>Quantico OS</div>
-                <div style='font-size: 0.72rem; color: #64748B;'>D-CVP-1008 • Active</div>
+                <div style='font-weight: 700; font-size: 0.95rem; color: #FFF;'>inventro.ai</div>
+                <div style='font-size: 0.72rem; color: #64748B;'>Autonomous Retail OS</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -525,7 +525,6 @@ with st.sidebar:
 
     st.markdown("<p style='font-size: 0.7rem; font-weight: 800; color: #8E9BAE; letter-spacing: 0.08em; margin-bottom: 6px;'>NAVIGATION PAGES</p>", unsafe_allow_html=True)
 
-    # All requested pages listed vertically one after another
     PAGES_LIST = [
         ("📊 Dashboard Overview", "dashboard"),
         ("👤 Profile & Vault", "profile"),
@@ -703,7 +702,7 @@ def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, eda_data: dict) 
         completion = client.chat.completions.create(
             model="gpt-5.6-luna",
             messages=[
-                {"role": "system", "content": f"You are the autonomous AI Copilot for inventro.ai operating in {c_code} ({c_sym.strip()}). Fleet: {json.dumps(trimmed, default=str)}. EDA: {json.dumps(eda_data, default=str)}. Answer concisely with bold metrics and actionable bullets."},
+                {"role": "system", "content": f"You are the autonomous AI Copilot for inventro.ai operating in {c_code} ({c_sym.strip()}). Fleet: {json.dumps(trimmed, default=str)}. EDA: {json.dumps(eda_data, default=str)}. State exact financial metrics in {c_code} ({c_sym.strip()})."},
                 {"role": "user", "content": user_query}
             ],
             reasoning_effort="low"
@@ -728,7 +727,7 @@ active_page_label = next((label for label, pid in PAGES_LIST if pid == st.sessio
 st.markdown(f"""
     <div style='display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;'>
         <div style='display: flex; align-items: center; gap: 12px;'>
-            <span style='font-size: 1.4rem; font-weight: 800; color: #FFFFFF;'>⚡ {active_page_label}</span>
+            <span style='font-size: 1.4rem; font-weight: 800; color: #FFFFFF;'>⚡ inventro.ai • {active_page_label}</span>
             <span style='color: #4B5563;'>•</span>
             <span class='chip chip-cyan'>FLEET ONLINE</span>
             <span class='chip chip-green'>CURRENCY: {c_code} ({c_sym.strip()})</span>
