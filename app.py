@@ -48,184 +48,155 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
-    /* Global Dark Slate Reset */
-    html, body, [class*="css"], .stApp {
-        font-family: 'Plus Jakarta Sans', sans-serif !important;
-        background-color: #0B0C10 !important;
-        color: #F1F5F9 !important;
-    }
-    
-    code, pre, .stCode {
-        font-family: 'JetBrains Mono', monospace !important;
-    }
+html, body, [class*="css"], .stApp {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    background-color: #0B0C10 !important;
+    color: #F1F5F9 !important;
+}
 
-    /* Sidebar Navigation Rail */
-    [data-testid="stSidebar"] {
-        background-color: #101218 !important;
-        border-right: 1px solid #1B1E28 !important;
-    }
-    [data-testid="stSidebar"] hr {
-        border-color: #1B1E28 !important;
-    }
+code, pre, .stCode {
+    font-family: 'JetBrains Mono', monospace !important;
+}
 
-    /* Dribbble Surface Cards */
-    .dribbble-card {
-        background: #141720;
-        border: 1px solid #1E2330;
-        border-radius: 16px;
-        padding: 20px 22px;
-        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
-        margin-bottom: 16px;
-        position: relative;
-    }
-    .dribbble-card:hover {
-        border-color: #2D3446;
-    }
+[data-testid="stSidebar"] {
+    background-color: #101218 !important;
+    border-right: 1px solid #1B1E28 !important;
+}
+[data-testid="stSidebar"] hr {
+    border-color: #1B1E28 !important;
+}
 
-    .card-header-flex {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 12px;
-    }
-    .card-label {
-        font-size: 0.78rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: #8E9BAE;
-    }
-    .card-val-lg {
-        font-size: 1.85rem;
-        font-weight: 800;
-        color: #FFFFFF;
-        font-family: 'JetBrains Mono', monospace;
-        letter-spacing: -0.02em;
-    }
-    .card-unit {
-        font-size: 0.8rem;
-        font-weight: 500;
-        color: #717D96;
-        margin-left: 4px;
-    }
+.dribbble-card {
+    background: #141720;
+    border: 1px solid #1E2330;
+    border-radius: 16px;
+    padding: 20px 22px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+    margin-bottom: 16px;
+    position: relative;
+}
+.dribbble-card:hover {
+    border-color: #2D3446;
+}
 
-    /* Status Badges */
-    .chip {
-        padding: 3px 10px;
-        border-radius: 20px;
-        font-size: 0.72rem;
-        font-weight: 700;
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-    }
-    .chip-green { background: rgba(0, 227, 150, 0.12); color: #00E396; border: 1px solid rgba(0, 227, 150, 0.3); }
-    .chip-red { background: rgba(255, 69, 96, 0.12); color: #FF4560; border: 1px solid rgba(255, 69, 96, 0.3); }
-    .chip-cyan { background: rgba(0, 178, 255, 0.12); color: #00B2FF; border: 1px solid rgba(0, 178, 255, 0.3); }
-    .chip-amber { background: rgba(254, 176, 25, 0.12); color: #FEB019; border: 1px solid rgba(254, 176, 25, 0.3); }
+.card-header-flex {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.card-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #8E9BAE;
+}
+.card-val-lg {
+    font-size: 1.85rem;
+    font-weight: 800;
+    color: #FFFFFF;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: -0.02em;
+}
+.card-unit {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #717D96;
+    margin-left: 4px;
+}
 
-    /* Category Segmented Progress Bars */
-    .seg-wrapper {
-        margin-bottom: 14px;
-    }
-    .seg-label {
-        display: flex;
-        justify-content: space-between;
-        font-size: 0.82rem;
-        font-weight: 600;
-        margin-bottom: 6px;
-        color: #E2E8F0;
-    }
-    .seg-bg {
-        background: #1C202C;
-        height: 8px;
-        border-radius: 6px;
-        overflow: hidden;
-    }
-    .seg-fill {
-        height: 100%;
-        border-radius: 6px;
-    }
+.chip {
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.chip-green { background: rgba(0, 227, 150, 0.12); color: #00E396; border: 1px solid rgba(0, 227, 150, 0.3); }
+.chip-red { background: rgba(255, 69, 96, 0.12); color: #FF4560; border: 1px solid rgba(255, 69, 96, 0.3); }
+.chip-cyan { background: rgba(0, 178, 255, 0.12); color: #00B2FF; border: 1px solid rgba(0, 178, 255, 0.3); }
+.chip-amber { background: rgba(254, 176, 25, 0.12); color: #FEB019; border: 1px solid rgba(254, 176, 25, 0.3); }
 
-    /* Risk Department Grid Table */
-    .risk-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.8rem;
-    }
-    .risk-table th {
-        color: #64748B;
-        text-transform: uppercase;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        text-align: left;
-        padding: 8px 10px;
-        border-bottom: 1px solid #1E2330;
-    }
-    .risk-table td {
-        padding: 10px 10px;
-        border-bottom: 1px solid #171A24;
-        color: #E2E8F0;
-        font-weight: 500;
-    }
+.risk-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    margin-top: 6px;
+}
+.risk-table th {
+    color: #64748B;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid #1E2330;
+}
+.risk-table td {
+    padding: 10px 10px;
+    border-bottom: 1px solid #171A24;
+    color: #E2E8F0;
+    font-weight: 500;
+}
 
-    /* Tabs Styling */
-    .stTabs [data-baseweb="tab-list"] {
-        background-color: #141720 !important;
-        padding: 5px !important;
-        border-radius: 12px !important;
-        border: 1px solid #1E2330 !important;
-        gap: 4px !important;
-    }
-    .stTabs [data-baseweb="tab"] {
-        font-size: 0.8rem !important;
-        font-weight: 600 !important;
-        color: #8E9BAE !important;
-        border-radius: 8px !important;
-        padding: 8px 16px !important;
-        border: none !important;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #1E2330 !important;
-        color: #00B2FF !important;
-    }
+.stTabs [data-baseweb="tab-list"] {
+    background-color: #141720 !important;
+    padding: 5px !important;
+    border-radius: 12px !important;
+    border: 1px solid #1E2330 !important;
+    gap: 4px !important;
+}
+.stTabs [data-baseweb="tab"] {
+    font-size: 0.8rem !important;
+    font-weight: 600 !important;
+    color: #8E9BAE !important;
+    border-radius: 8px !important;
+    padding: 8px 16px !important;
+    border: none !important;
+}
+.stTabs [aria-selected="true"] {
+    background-color: #1E2330 !important;
+    color: #00B2FF !important;
+}
 
-    /* Input & Interactive Overrides */
-    .stButton > button {
-        font-family: 'Plus Jakarta Sans', sans-serif !important;
-        font-size: 0.8rem !important;
-        font-weight: 700 !important;
-        border-radius: 10px !important;
-        border: 1px solid #282E3E !important;
-        background: #191D28 !important;
-        color: #F1F5F9 !important;
-        transition: all 0.2s ease !important;
-    }
-    .stButton > button:hover {
-        border-color: #00B2FF !important;
-        color: #00B2FF !important;
-    }
-    .stButton > button[kind="primary"] {
-        background: #0284C7 !important;
-        border-color: #00B2FF !important;
-        color: #FFFFFF !important;
-    }
+.stButton > button {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    font-size: 0.8rem !important;
+    font-weight: 700 !important;
+    border-radius: 10px !important;
+    border: 1px solid #282E3E !important;
+    background: #191D28 !important;
+    color: #F1F5F9 !important;
+    transition: all 0.2s ease !important;
+}
+.stButton > button:hover {
+    border-color: #00B2FF !important;
+    color: #00B2FF !important;
+}
+.stButton > button[kind="primary"] {
+    background: #0284C7 !important;
+    border-color: #00B2FF !important;
+    color: #FFFFFF !important;
+}
 
-    input, select, textarea, [data-baseweb="select"] {
-        background-color: #141720 !important;
-        border-color: #1E2330 !important;
-        color: #F1F5F9 !important;
-        border-radius: 10px !important;
-        font-size: 0.85rem !important;
-    }
+input, select, textarea, [data-baseweb="select"] {
+    background-color: #141720 !important;
+    border-color: #1E2330 !important;
+    color: #F1F5F9 !important;
+    border-radius: 10px !important;
+    font-size: 0.85rem !important;
+}
 
-    [data-testid="stDataFrame"] {
-        border: 1px solid #1E2330 !important;
-        border-radius: 12px !important;
-        background: #141720 !important;
-    }
+[data-testid="stDataFrame"] {
+    border: 1px solid #1E2330 !important;
+    border-radius: 12px !important;
+    background: #141720 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -351,10 +322,7 @@ if "authenticated_user" not in st.session_state:
     st.session_state.authenticated_user = None
 
 if not st.session_state.authenticated_user:
-    st.markdown("<div style='text-align: center; padding: 60px 0 30px 0;'>", unsafe_allow_html=True)
-    st.markdown("<h1 style='color: #00B2FF; font-weight: 800; letter-spacing: -0.03em;'>⚡ INVENTRO.AI</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='color: #8E9BAE; font-size: 1rem;'>Autonomous Retail Operating System & Machine Intelligence Control</p>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; padding: 60px 0 30px 0;'><h1 style='color: #00B2FF; font-weight: 800; letter-spacing: -0.03em;'>⚡ INVENTRO.AI</h1><p style='color: #8E9BAE; font-size: 1rem;'>Autonomous Retail Operating System & Machine Intelligence Control</p></div>", unsafe_allow_html=True)
     
     auth_col1, auth_col2, auth_col3 = st.columns([1, 1.1, 1])
     with auth_col2:
@@ -512,18 +480,10 @@ def get_db_engine(connection_string: str):
         return None
 
 # ==========================================
-# SIDEBAR NAVIGATION & SETTINGS (Image 2 style)
+# SIDEBAR NAVIGATION & SETTINGS
 # ==========================================
 with st.sidebar:
-    st.markdown("""
-        <div style='display: flex; align-items: center; gap: 10px; margin-bottom: 15px;'>
-            <div style='width: 38px; height: 38px; border-radius: 10px; background: #00B2FF; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem; color: #FFF;'>⚡</div>
-            <div>
-                <div style='font-weight: 700; font-size: 0.95rem; color: #FFF;'>Quantico OS</div>
-                <div style='font-size: 0.72rem; color: #64748B;'>D-CVP-1008 • Active</div>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<div style='display: flex; align-items: center; gap: 10px; margin-bottom: 15px;'><div style='width: 38px; height: 38px; border-radius: 10px; background: #00B2FF; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem; color: #FFF;'>⚡</div><div><div style='font-weight: 700; font-size: 0.95rem; color: #FFF;'>Quantico OS</div><div style='font-size: 0.72rem; color: #64748B;'>D-CVP-1008 • Active</div></div></div>", unsafe_allow_html=True)
     
     st.caption(f"Operator: `{current_user.get('email', '')[:20]}`")
     if st.button("TERMINATE SESSION", use_container_width=True):
@@ -746,26 +706,10 @@ def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, eda_data: dict) 
 # ==========================================
 hdr_c1, hdr_c2 = st.columns([2.5, 1])
 with hdr_c1:
-    st.markdown("""
-        <div style='display: flex; align-items: center; gap: 12px; margin-bottom: 20px;'>
-            <span style='font-size: 1.4rem; font-weight: 800; color: #FFFFFF;'>⚡ Quantico Overview</span>
-            <span style='color: #4B5563;'>•</span>
-            <span style='color: #94A3B8; font-size: 0.95rem; font-weight: 500;'>Real-Time Analytics & Risk Monitoring</span>
-            <span class='chip chip-cyan'>FLEET ONLINE</span>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<div style='display: flex; align-items: center; gap: 12px; margin-bottom: 20px;'><span style='font-size: 1.4rem; font-weight: 800; color: #FFFFFF;'>⚡ Quantico Overview</span><span style='color: #4B5563;'>•</span><span style='color: #94A3B8; font-size: 0.95rem; font-weight: 500;'>Real-Time Analytics & Risk Monitoring</span><span class='chip chip-cyan'>FLEET ONLINE</span></div>", unsafe_allow_html=True)
 
 with hdr_c2:
-    st.markdown(f"""
-        <div style='display: flex; justify-content: flex-end; align-items: center; gap: 10px;'>
-            <span style='background: #141720; border: 1px solid #1E2330; padding: 6px 14px; border-radius: 20px; font-size: 0.78rem; color: #94A3B8;'>
-                Connected: <b style='color:#00E396;'>Live Postgres</b>
-            </span>
-            <span style='background: #141720; border: 1px solid #1E2330; padding: 6px 14px; border-radius: 20px; font-size: 0.78rem; color: #94A3B8;'>
-                SLA: <b style='color:#00B2FF;'>99.98%</b>
-            </span>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<div style='display: flex; justify-content: flex-end; align-items: center; gap: 10px;'><span style='background: #141720; border: 1px solid #1E2330; padding: 6px 14px; border-radius: 20px; font-size: 0.78rem; color: #94A3B8;'>Connected: <b style='color:#00E396;'>Live Postgres</b></span><span style='background: #141720; border: 1px solid #1E2330; padding: 6px 14px; border-radius: 20px; font-size: 0.78rem; color: #94A3B8;'>SLA: <b style='color:#00B2FF;'>99.98%</b></span></div>", unsafe_allow_html=True)
 
 # Calculation metrics for visual cards
 total_stock = int(analytics_df['stock'].sum()) if not analytics_df.empty else 0
@@ -780,73 +724,13 @@ nominal_revenue = f"${(total_stock * 32.40):,.2f}"
 r1_c1, r1_c2, r1_c3 = st.columns([1.2, 1.2, 1.6])
 
 with r1_c1:
-    st.markdown(f"""
-        <div class="dribbble-card">
-            <div class="card-header-flex">
-                <span class="card-label">Nominal Balance</span>
-                <span style="color: #64748B;">💳</span>
-            </div>
-            <div class="card-val-lg">$78,500.00 <span class="card-unit">USD</span></div>
-            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;">
-                <span class="chip chip-green">↑ 1.18% weekly</span>
-                <svg width="75" height="24" viewBox="0 0 100 30" fill="none">
-                    <path d="M0 25 Q 25 5, 50 18 T 100 8" stroke="#00E396" stroke-width="3" fill="none"/>
-                </svg>
-            </div>
-        </div>
-        <div class="dribbble-card">
-            <div class="card-header-flex">
-                <span class="card-label">Nominal Revenue</span>
-                <span style="color: #64748B;">📈</span>
-            </div>
-            <div class="card-val-lg">{nominal_revenue}</div>
-            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;">
-                <span class="chip chip-green">↑ 0.29% run-rate</span>
-                <svg width="75" height="24" viewBox="0 0 100 30" fill="none">
-                    <path d="M0 20 Q 30 28, 60 10 T 100 5" stroke="#00E396" stroke-width="3" fill="none"/>
-                </svg>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Nominal Balance</span><span style='color: #64748B;'>💳</span></div><div class='card-val-lg'>$78,500.00 <span class='card-unit'>USD</span></div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>↑ 1.18% weekly</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 25 Q 25 5, 50 18 T 100 8' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Nominal Revenue</span><span style='color: #64748B;'>📈</span></div><div class='card-val-lg'>{nominal_revenue}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>↑ 0.29% run-rate</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 20 Q 30 28, 60 10 T 100 5' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
 
 with r1_c2:
-    st.markdown(f"""
-        <div class="dribbble-card">
-            <div class="card-header-flex">
-                <span class="card-label">Total Stock Volume</span>
-                <span style="color: #64748B;">📦</span>
-            </div>
-            <div class="card-val-lg">{total_stock:,} <span class="card-unit">ITEMS</span></div>
-            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;">
-                <span class="chip chip-cyan">↑ 0.28% inventory</span>
-                <svg width="75" height="24" viewBox="0 0 100 30" fill="none">
-                    <path d="M0 15 Q 35 2, 70 20 T 100 8" stroke="#00B2FF" stroke-width="3" fill="none"/>
-                </svg>
-            </div>
-        </div>
-        <div class="dribbble-card">
-            <div class="card-header-flex">
-                <span class="card-label">Replenishment Outlay</span>
-                <span style="color: #64748B;">⚠️</span>
-            </div>
-            <div class="card-val-lg">$12,980.00 <span class="card-unit">USD</span></div>
-            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;">
-                <span class="chip chip-red">↓ 0.15% PO deficit</span>
-                <svg width="75" height="24" viewBox="0 0 100 30" fill="none">
-                    <path d="M0 8 Q 30 22, 60 12 T 100 24" stroke="#FF4560" stroke-width="3" fill="none"/>
-                </svg>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Total Stock Volume</span><span style='color: #64748B;'>📦</span></div><div class='card-val-lg'>{total_stock:,} <span class='card-unit'>ITEMS</span></div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-cyan'>↑ 0.28% inventory</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 15 Q 35 2, 70 20 T 100 8' stroke='#00B2FF' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Replenishment Outlay</span><span style='color: #64748B;'>⚠️</span></div><div class='card-val-lg'>$12,980.00 <span class='card-unit'>USD</span></div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-red'>↓ 0.15% PO deficit</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 8 Q 30 22, 60 12 T 100 24' stroke='#FF4560' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
 
 with r1_c3:
-    st.markdown("""
-        <div class="dribbble-card" style="height: 100%;">
-            <div class="card-header-flex">
-                <span class="card-label">Product Activity Distribution</span>
-                <span class="chip chip-cyan">LIVE TELEMETRY</span>
-            </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<div class='dribbble-card' style='height: 100%;'><div class='card-header-flex'><span class='card-label'>Product Activity Distribution</span><span class='chip chip-cyan'>LIVE TELEMETRY</span></div>", unsafe_allow_html=True)
 
     if PLOTLY_AVAILABLE:
         fig_donut = go.Figure(data=[go.Pie(
@@ -872,35 +756,15 @@ with r1_c3:
     else:
         st.markdown(f"<div style='text-align:center; padding: 40px 0;'><h2>{total_stock:,} Units</h2><p>Telemetry Ready</p></div>", unsafe_allow_html=True)
 
-    st.markdown(f"""
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.76rem; font-weight: 600; padding-top: 4px;">
-                <div><span style="color:#00B2FF;">●</span> Healthy: <b style="color:#FFF;">{healthy_units}</b></div>
-                <div><span style="color:#FEB019;">●</span> Restock: <b style="color:#FFF;">{restock_needed}</b></div>
-                <div><span style="color:#00E396;">●</span> Fast Mover: <b style="color:#FFF;">{int(len(analytics_df)*0.2)}</b></div>
-                <div><span style="color:#FF4560;">●</span> Spoilage Alert: <b style="color:#FFF;">{perish_alert}</b></div>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.76rem; font-weight: 600; padding-top: 4px;'><div><span style='color:#00B2FF;'>●</span> Healthy: <b style='color:#FFF;'>{healthy_units}</b></div><div><span style='color:#FEB019;'>●</span> Restock: <b style='color:#FFF;'>{restock_needed}</b></div><div><span style='color:#00E396;'>●</span> Fast Mover: <b style='color:#FFF;'>{int(len(analytics_df)*0.2)}</b></div><div><span style='color:#FF4560;'>●</span> Spoilage Alert: <b style='color:#FFF;'>{perish_alert}</b></div></div></div>", unsafe_allow_html=True)
 
 # ==========================================
-# ROW 2: SMOOTH AREA PROMPT VOLUME + RISK GRID (Image 2 Style)
+# ROW 2: SMOOTH AREA PROMPT VOLUME + RISK GRID
 # ==========================================
 r2_c1, r2_c2 = st.columns([1.6, 1.1])
 
 with r2_c1:
-    st.markdown("""
-        <div class="dribbble-card">
-            <div class="card-header-flex">
-                <div>
-                    <span class="card-label">Inventory & Inflow Velocity Drift</span>
-                    <div style="font-size: 0.72rem; color: #64748B;">Total unit transactions vs weekly baseline</div>
-                </div>
-                <div style="display: flex; gap: 12px; font-size: 0.75rem; font-weight: 600;">
-                    <span style="color: #00B2FF;">● Total Throughput</span>
-                    <span style="color: #FF4560;">● Critical Restocks</span>
-                </div>
-            </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<div class='dribbble-card'><div class='card-header-flex'><div><span class='card-label'>Inventory & Inflow Velocity Drift</span><div style='font-size: 0.72rem; color: #64748B;'>Total unit transactions vs weekly baseline</div></div><div style='display: flex; gap: 12px; font-size: 0.75rem; font-weight: 600;'><span style='color: #00B2FF;'>● Total Throughput</span><span style='color: #FF4560;'>● Critical Restocks</span></div></div>", unsafe_allow_html=True)
 
     if PLOTLY_AVAILABLE:
         days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -931,38 +795,26 @@ with r2_c1:
     st.markdown("</div>", unsafe_allow_html=True)
 
 with r2_c2:
-    st.markdown("""
-        <div class="dribbble-card">
-            <div class="card-header-flex">
-                <div>
-                    <span class="card-label">Risk by Department Matrix</span>
-                    <div style="font-size: 0.72rem; color: #64748B;">Category stockout vulnerability profile</div>
-                </div>
-                <span class="chip chip-amber">LEVEL: WARN</span>
-            </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<div class='dribbble-card'><div class='card-header-flex'><div><span class='card-label'>Risk by Department Matrix</span><div style='font-size: 0.72rem; color: #64748B;'>Category stockout vulnerability profile</div></div><span class='chip chip-amber'>LEVEL: WARN</span></div>", unsafe_allow_html=True)
 
     if not analytics_df.empty:
-        # Build department / category risk counts
         cat_risk = analytics_df.groupby("category").apply(
             lambda x: pd.Series({
-                "Low": (x["reorder_status"] == "HEALTHY").sum(),
-                "Med": ((x["stock"] <= x["rop"] * 1.5) & (x["stock"] > x["rop"])).sum(),
-                "High": (x["reorder_status"] == "RESTOCK NEEDED").sum()
+                "Low": int((x["reorder_status"] == "HEALTHY").sum()),
+                "Med": int(((x["stock"] <= x["rop"] * 1.5) & (x["stock"] > x["rop"])).sum()),
+                "High": int((x["reorder_status"] == "RESTOCK NEEDED").sum())
             })
         ).reset_index().head(5)
 
-        table_html = "<table class='risk-table'><tr><th>DEPT</th><th>LOW</th><th>MED</th><th>HIGH</th></tr>"
-        for _, r in cat_risk.iterrows():
-            table_html += f"""
-                <tr>
-                    <td><b>{r['category'][:14]}</b></td>
-                    <td style='color:#00E396;'>{r['Low']}</td>
-                    <td style='color:#FEB019;'>{r['Med']}</td>
-                    <td style='color:#FF4560;'><b>{r['High']}</b></td>
-                </tr>
-            """
-        table_html += "</table>"
+        table_rows = "".join([
+            f"<tr><td><b>{r['category'][:14]}</b></td>"
+            f"<td style='color:#00E396;'>{r['Low']}</td>"
+            f"<td style='color:#FEB019;'>{r['Med']}</td>"
+            f"<td style='color:#FF4560;'><b>{r['High']}</b></td></tr>"
+            for _, r in cat_risk.iterrows()
+        ])
+        
+        table_html = f"<table class='risk-table'><tr><th>DEPT</th><th>LOW</th><th>MED</th><th>HIGH</th></tr>{table_rows}</table>"
         st.markdown(table_html, unsafe_allow_html=True)
     else:
         st.caption("Awaiting live database feed.")
@@ -997,7 +849,7 @@ with tab_command:
         st.info("No transaction records detected. Connect database or provision schema to initialize.")
 
 # ------------------------------------------
-# TAB 2: RISK & GOVERNANCE RADAR (Image 2 style)
+# TAB 2: RISK & GOVERNANCE RADAR
 # ------------------------------------------
 with tab_risk:
     st.markdown("##### **Autonomous Risk & Compliance Radar**")
