@@ -510,7 +510,7 @@ def execute_autonomous_eda(df_prod: pd.DataFrame, df_sls: pd.DataFrame, df_mv: p
     if "vendor" in df_prod.columns and "email" in df_prod.columns:
         uncontactable = len(df_prod[(df_prod["vendor"] != "Unassigned") & ((df_prod["email"] == "") | df_prod["email"].isnull())])
         if uncontactable > 0:
-            null_patterns.append(f"{uncontactable} SKUs have active suppliers assigned but missing dispatch email.")
+            null_patterns.append(f"{uncontactable} SKU(s) have assigned suppliers but lack dispatch email addresses.")
 
     eda["missing_values"] = {
         "product_nulls": prod_nulls,
@@ -567,9 +567,9 @@ def execute_autonomous_eda(df_prod: pd.DataFrame, df_sls: pd.DataFrame, df_mv: p
     # 10. Data Leakage & Data Quality Checks
     quality_issues = []
     if "stock" in df_prod.columns and (df_prod["stock"] < 0).any():
-        quality_issues.append(f"Negative stock anomalies detected in {int((df_prod['stock'] < 0).sum())} SKU(s).")
+        quality_issues.append(f"Negative physical stock detected across {int((df_prod['stock'] < 0).sum())} SKU(s).")
     if "lead_time" in df_prod.columns and (df_prod["lead_time"] <= 0).any():
-        quality_issues.append(f"Zero or negative vendor turnaround time detected in {int((df_prod['lead_time'] <= 0).sum())} item(s).")
+        quality_issues.append(f"Zero or negative vendor turnaround time detected across {int((df_prod['lead_time'] <= 0).sum())} item(s).")
     
     if not df_sls.empty and "transaction_date" in df_sls.columns:
         try:
@@ -587,7 +587,7 @@ def execute_autonomous_eda(df_prod: pd.DataFrame, df_sls: pd.DataFrame, df_mv: p
             temp_df = df_sls.copy()
             temp_df["dt"] = pd.to_datetime(temp_df["transaction_date"], errors="coerce")
             temp_df["day_of_week"] = temp_df["dt"].dt.day_name()
-            temporal["busiest_day"] = temp_df.groupby("day_of_week")["quantity_sold"].sum().idxmax()
+            temporal["busiest_day"] = str(temp_df.groupby("day_of_week")["quantity_sold"].sum().idxmax())
             temporal["weekend_sales_ratio"] = round(float(temp_df[temp_df["dt"].dt.weekday >= 5]["quantity_sold"].sum() / (temp_df["quantity_sold"].sum() or 1.0)), 2)
         except Exception:
             temporal["busiest_day"] = "Indeterminate"
@@ -804,66 +804,79 @@ with tab_agent:
 # TAB 2: 14-POINT AUTONOMOUS EDA AUDIT REPORT
 # ------------------------------------------
 with tab_eda:
-    st.markdown("#### **🔬 14-Point Automated EDA & Quality Assurance Report**")
-    st.caption("Real-time exploratory telemetry executing on every connection cycle.")
+    st.markdown("#### **🔬 14-Point Automated EDA & Data Quality Report**")
+    st.caption("Real-time telemetry and statistical profiling executing on active database connections.")
 
     if not eda_results:
-        st.info("Awaiting live database connection to run EDA audit.")
+        st.info("Awaiting live database connection to compile EDA audit.")
     else:
         eda_c1, eda_c2, eda_c3, eda_c4 = st.columns(4)
         eda_c1.metric("Catalog SKUs", eda_results["overview"]["catalog_rows"])
-        eda_c2.metric("Sales Transactions", eda_results["overview"]["sales_ledger_rows"])
+        eda_c2.metric("Sales Ledger Events", eda_results["overview"]["sales_ledger_rows"])
         eda_c3.metric("Stock Volume Outliers", eda_results["outliers"]["stock_outliers"])
-        eda_c4.metric("Weekend Demand Ratio", f"{eda_results.get('temporal', {}).get('weekend_sales_ratio', 0) * 100:.1f}%")
+        weekend_pct = eda_results.get('temporal', {}).get('weekend_sales_ratio', 0) * 100
+        eda_c4.metric("Weekend Demand Ratio", f"{weekend_pct:.1f}%")
 
         st.divider()
 
         eda_row1_col1, eda_row1_col2 = st.columns(2)
         
         with eda_row1_col1:
-            st.markdown("**1. Data Overview & Schema Validation**")
-            st.json({
-                "Total Cells Ingested": eda_results["overview"]["total_cells_scanned"],
-                "Catalog Dimensions": f"{eda_results['overview']['catalog_rows']} rows × {eda_results['overview']['catalog_cols']} cols",
-                "Schema Types Detected": eda_results["schema_types"]["prod_dtypes"],
-                "Auto-Mapped Columns": eda_results["schema_types"]["normalized_keys_count"]
-            })
+            st.markdown("##### **1. Ingestion Overview & Schema Health**")
+            overview_data = [
+                {"Parameter": "Total Records Ingested", "Diagnostic Result": f"{eda_results['overview']['total_cells_scanned']:,} cells"},
+                {"Parameter": "Catalog Matrix Dimensions", "Diagnostic Result": f"{eda_results['overview']['catalog_rows']} items × {eda_results['overview']['catalog_cols']} columns"},
+                {"Parameter": "Audit Ledger Depth", "Diagnostic Result": f"{eda_results['overview']['audit_movements_rows']} stock movement events"},
+                {"Parameter": "Auto-Resolved Schema Keys", "Diagnostic Result": f"{eda_results['schema_types']['normalized_keys_count']} operational fields synced"}
+            ]
+            st.dataframe(pd.DataFrame(overview_data), use_container_width=True, hide_index=True)
 
-            st.markdown("**2. Duplicate Records & Null Pattern Analysis**")
-            st.json({
-                "Duplicate SKUs": eda_results["duplicates"]["duplicate_skus"],
-                "Duplicate Sales Txns": eda_results["duplicates"]["duplicate_transactions"],
-                "Null Patterns": eda_results["missing_values"]["null_patterns"] or "No systematic missingness detected."
-            })
+            st.markdown("##### **2. Data Hygiene & Null Pattern Analysis**")
+            dup_sku = eda_results['duplicates']['duplicate_skus']
+            dup_txn = eda_results['duplicates']['duplicate_transactions']
+            null_notes = eda_results['missing_values']['null_patterns']
 
-            st.markdown("**3. Data Quality & Data Leakage Checks**")
+            st.markdown(f"• **Duplicate Primary Barcodes:** `{'None (100% Unique)' if dup_sku == 0 else f'{dup_sku} conflicting SKUs'}`")
+            st.markdown(f"• **Duplicate Sales Records:** `{'None (Zero collision)' if dup_txn == 0 else f'{dup_txn} duplicates found'}`")
+            if null_notes:
+                for note in null_notes:
+                    st.warning(f"• {note}")
+            else:
+                st.markdown("• **Missing Data Patterns:** `Zero systematic missingness detected across essential fields.`")
+
+            st.markdown("##### **3. Data Quality & Leakage Surveillance**")
             if eda_results["data_quality"]:
                 for dq in eda_results["data_quality"]:
                     st.error(f"⚠️ {dq}")
             else:
-                st.success("✅ Zero data leakage detected. Timestamps, stock non-negativity, and lead times pass validation.")
+                st.success("✅ **Quality Gate Passed:** No future-dated transactions, negative balances, or invalid lead times.")
 
         with eda_row1_col2:
-            st.markdown("**4. Numerical Feature Analysis & Distributions**")
+            st.markdown("##### **4. Numerical Feature Distributions (Tukey's IQR)**")
             num_df = pd.DataFrame(eda_results["numerical_stats"]).T
-            st.dataframe(num_df, use_container_width=True)
+            num_df.index.name = "Feature"
+            st.dataframe(num_df.reset_index(), use_container_width=True, hide_index=True)
 
-            st.markdown("**5. Categorical Features & High Cardinality Analysis**")
-            st.json({
-                "Total Category Count": eda_results["categorical"]["categories_count"],
-                "Primary Category": eda_results["categorical"]["top_category"],
-                "Total Vendor Footprint": eda_results["categorical"]["vendors_count"],
-                "Primary Supplier": eda_results["categorical"]["top_vendor"]
-            })
+            st.markdown("##### **5. Categorical & Supplier Footprint**")
+            cat_table = [
+                {"Dimension": "Active Product Categories", "Summary": str(eda_results["categorical"]["categories_count"])},
+                {"Dimension": "Dominant Product Category", "Summary": str(eda_results["categorical"]["top_category"])},
+                {"Dimension": "Unique Suppliers Assigned", "Summary": str(eda_results["categorical"]["vendors_count"])},
+                {"Dimension": "Primary Volume Supplier", "Summary": str(eda_results["categorical"]["top_vendor"])}
+            ]
+            st.dataframe(pd.DataFrame(cat_table), use_container_width=True, hide_index=True)
 
-            st.markdown("**6. Class Imbalance (Inventory Health Distribution)**")
-            health_dist = analytics_df["reorder_status"].value_counts().to_dict()
-            abc_dist = analytics_df["abc_class"].value_counts().to_dict()
-            st.json({
-                "Reorder Balance": health_dist,
-                "Pareto ABC Distribution": abc_dist,
-                "Perishability Alert Count": int((analytics_df["expiry_risk"] == "HIGH EXPIRY RISK").sum())
-            })
+            st.markdown("##### **6. Assortment Health & Pareto Segmentation**")
+            health_counts = analytics_df["reorder_status"].value_counts().to_dict()
+            abc_counts = analytics_df["abc_class"].value_counts().to_dict()
+            decay_count = int((analytics_df["expiry_risk"] == "HIGH EXPIRY RISK").sum())
+
+            summary_rows = [
+                {"Segment": "Stock Status", "Distribution": f"Healthy: {health_counts.get('HEALTHY', 0)} | Restock Needed: {health_counts.get('RESTOCK NEEDED', 0)}"},
+                {"Segment": "Pareto Volume (ABC)", "Distribution": f"Class A: {abc_counts.get('A', 0)} | Class B: {abc_counts.get('B', 0)} | Class C: {abc_counts.get('C', 0)}"},
+                {"Segment": "Critical Spoilage Horizon", "Distribution": f"{decay_count} SKU(s) within 7-day expiry window"}
+            ]
+            st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
 
 # ------------------------------------------
 # TAB 3: CATALOG & ANALYTICS MATRIX
