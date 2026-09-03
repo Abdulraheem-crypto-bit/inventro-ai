@@ -4,4 +4,4 @@ numpy
 sqlalchemy
 psycopg2-binary
 pymysql
-google-genai
+groq
