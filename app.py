@@ -3,6 +3,7 @@ import re
 import math
 import json
 import random
+import secrets
 import smtplib
 import sqlite3
 import hashlib
@@ -309,6 +310,32 @@ def verify_user(email: str, password: str):
         return None
     return None
 
+def send_system_email(recipient: str, subject: str, body: str) -> tuple[bool, str]:
+    try:
+        with get_vault_connection() as conn:
+            c = conn.cursor()
+            c.execute("SELECT smtp_server, smtp_port, smtp_sender, smtp_password FROM users WHERE email = ?", (recipient.strip().lower(),))
+            smtp_info = c.fetchone()
+            if not (smtp_info and smtp_info[0] and smtp_info[2] and smtp_info[3]):
+                c.execute("SELECT smtp_server, smtp_port, smtp_sender, smtp_password FROM users WHERE smtp_server != '' LIMIT 1")
+                smtp_info = c.fetchone()
+
+        if smtp_info and smtp_info[0] and smtp_info[2] and smtp_info[3]:
+            msg = MIMEText(body)
+            msg["Subject"] = subject
+            msg["From"] = smtp_info[2]
+            msg["To"] = recipient.strip()
+            server = smtplib.SMTP(smtp_info[0], int(smtp_info[1] or 587), timeout=10)
+            server.starttls()
+            server.login(smtp_info[2], smtp_info[3])
+            server.send_message(msg)
+            server.quit()
+            return True, "Email sent successfully via SMTP."
+        else:
+            return False, "SMTP unconfigured. Displaying on-screen fallback."
+    except Exception as e:
+        return False, f"SMTP dispatch notice: {str(e)}"
+
 def set_user_otp(email: str) -> tuple[bool, str]:
     clean_email = email.strip().lower()
     otp_code = f"{random.randint(100000, 999999)}"
@@ -323,37 +350,32 @@ def set_user_otp(email: str) -> tuple[bool, str]:
     except Exception as e:
         return False, str(e)
 
-def verify_otp_and_update_pw(email: str, otp_code: str, new_password: str) -> tuple[bool, str]:
+def generate_reset_token(email: str) -> tuple[bool, str]:
     clean_email = email.strip().lower()
+    token = secrets.token_urlsafe(24)
     try:
         with get_vault_connection() as conn:
             c = conn.cursor()
-            c.execute("SELECT reset_token FROM users WHERE email = ?", (clean_email,))
-            row = c.fetchone()
-            if not row or not row[0]:
-                return False, "No active password reset request found. Request a new OTP."
-            if row[0].strip() != otp_code.strip():
-                return False, "Invalid OTP code entered."
-            
-            c.execute(
-                "UPDATE users SET password_hash = ?, reset_token = '' WHERE email = ?",
-                (hash_pw(new_password), clean_email)
-            )
+            c.execute("UPDATE users SET reset_token = ? WHERE email = ?", (token, clean_email))
             conn.commit()
-            return True, "Password updated successfully. You can now log in."
+            if c.rowcount > 0:
+                return True, token
+            return False, "No operator account found with this email."
     except Exception as e:
         return False, str(e)
 
-def direct_reset_password(email: str, new_password: str) -> tuple[bool, str]:
-    clean_email = email.strip().lower()
+def reset_password_with_token(token: str, new_password: str) -> tuple[bool, str]:
     try:
         with get_vault_connection() as conn:
             c = conn.cursor()
-            c.execute("UPDATE users SET password_hash = ? WHERE email = ?", (hash_pw(new_password), clean_email))
+            c.execute("SELECT email FROM users WHERE reset_token = ? AND reset_token != ''", (token.strip(),))
+            row = c.fetchone()
+            if not row:
+                return False, "Invalid or expired reset token."
+            user_email = row[0]
+            c.execute("UPDATE users SET password_hash = ?, reset_token = '' WHERE email = ?", (hash_pw(new_password), user_email))
             conn.commit()
-            if c.rowcount > 0:
-                return True, "Password updated directly! Please sign in."
-            return False, "No operator account found with this email."
+            return True, f"Password reset successful for {user_email}. You may now log in."
     except Exception as e:
         return False, str(e)
 
@@ -378,17 +400,45 @@ def save_user_credentials(user_id: int, dialect: str, host: str, port: str, dbna
 if "authenticated_user" not in st.session_state:
     st.session_state.authenticated_user = None
 
+query_params = st.query_params
+active_reset_token = query_params.get("reset_token", None)
+
 if not st.session_state.authenticated_user:
-    st.markdown("<div style='text-align: center; padding: 60px 0 30px 0;'><h1 style='color: #00B2FF; font-weight: 800; letter-spacing: -0.03em;'>⚡ INVENTRO.AI</h1><p style='color: #8E9BAE; font-size: 1rem;'>Autonomous Retail Operating System & Machine Intelligence Control</p></div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; padding: 50px 0 25px 0;'><h1 style='color: #00B2FF; font-weight: 800; letter-spacing: -0.03em;'>⚡ INVENTRO.AI</h1><p style='color: #8E9BAE; font-size: 1rem;'>Autonomous Retail Operating System & Machine Intelligence Control</p></div>", unsafe_allow_html=True)
     
-    auth_col1, auth_col2, auth_col3 = st.columns([1, 1.2, 1])
+    auth_col1, auth_col2, auth_col3 = st.columns([1, 1.25, 1])
     with auth_col2:
-        auth_tab_login, auth_tab_signup, auth_tab_reset = st.tabs(["🔐 Sign In", "📝 Create Account", "🔑 Reset Password"])
+        if active_reset_token:
+            st.markdown("<div class='dribbble-card'>", unsafe_allow_html=True)
+            st.markdown("##### 🔐 Set New Password")
+            st.caption("Secure password reset link authenticated.")
+            new_link_pw = st.text_input("New Password", type="password", key="new_link_pw")
+            confirm_link_pw = st.text_input("Confirm New Password", type="password", key="confirm_link_pw")
+
+            if st.button("UPDATE PASSWORD & PROCEED TO LOGIN", type="primary", use_container_width=True):
+                if not new_link_pw or not confirm_link_pw:
+                    st.warning("All fields are required.")
+                elif new_link_pw != confirm_link_pw:
+                    st.error("Passwords do not match.")
+                elif len(new_link_pw) < 6:
+                    st.error("Password must be at least 6 characters.")
+                else:
+                    ok, msg = reset_password_with_token(active_reset_token, new_link_pw)
+                    if ok:
+                        st.success(msg)
+                        st.query_params.clear()
+                        st.rerun()
+                    else:
+                        st.error(msg)
+            st.markdown("</div>", unsafe_allow_html=True)
+            st.stop()
+
+        auth_tab_login, auth_tab_signup = st.tabs(["🔐 Sign In", "📝 Create Account"])
         
         with auth_tab_login:
             st.markdown("##### Workspace Authentication")
             login_email = st.text_input("Operator Identity", key="login_email")
-            login_pass = st.text_input("Security Secret", type="password", key="login_pass")
+            login_pass = st.text_input("Password", type="password", key="login_pass")
             
             if st.button("INITIALIZE MISSION CONTROL", type="primary", use_container_width=True):
                 if login_email and login_pass:
@@ -402,100 +452,108 @@ if not st.session_state.authenticated_user:
                 else:
                     st.warning("Please provide operator email and password.")
 
+            with st.expander("Forgot password?"):
+                st.markdown("<p style='font-size: 0.8rem; font-weight: 600; color: #8E9BAE;'>Select recovery path:</p>", unsafe_allow_html=True)
+                recovery_choice = st.radio(
+                    "Recovery Mode:",
+                    ["Option 1: Send OTP to registered email", "Option 2: Reset password via email link"],
+                    label_visibility="collapsed",
+                    key="recovery_choice"
+                )
+
+                reg_email = st.text_input("Registered Email Address", key="reg_email_field", placeholder="operator@retail.com")
+
+                if recovery_choice == "Option 1: Send OTP to registered email":
+                    st.caption("A 6-digit one-time passcode will be transmitted to your email to log you in directly.")
+                    
+                    if st.button("DISPATCH LOGIN OTP", use_container_width=True):
+                        if reg_email:
+                            ok, otp_or_msg = set_user_otp(reg_email)
+                            if ok:
+                                body = f"Your inventro.ai direct-login OTP is: {otp_or_msg}\n\nThis one-time password grants immediate access to your mission control terminal."
+                                mail_sent, _ = send_system_email(reg_email, "inventro.ai • One-Time Access Code", body)
+                                if mail_sent:
+                                    st.success(f"One-time password dispatched to {reg_email}.")
+                                else:
+                                    st.info(f"Operator OTP generated: **{otp_or_msg}** *(SMTP offline, showing on-screen)*")
+                            else:
+                                st.error(otp_or_msg)
+                        else:
+                            st.warning("Please enter your registered email.")
+
+                    otp_input = st.text_input("Enter 6-Digit OTP", key="login_otp_input")
+                    if st.button("VERIFY OTP & LOG IN", type="primary", use_container_width=True):
+                        if not reg_email or not otp_input:
+                            st.warning("Please enter both email and OTP.")
+                        else:
+                            try:
+                                with get_vault_connection() as conn:
+                                    c = conn.cursor()
+                                    c.execute("SELECT reset_token FROM users WHERE email = ?", (reg_email.strip().lower(),))
+                                    row = c.fetchone()
+                                    if row and row[0] and row[0].strip() == otp_input.strip():
+                                        c.execute("UPDATE users SET reset_token = '' WHERE email = ?", (reg_email.strip().lower(),))
+                                        conn.commit()
+                                        
+                                        c.execute("""
+                                            SELECT id, email, db_dialect, db_host, db_port, db_name, db_user, db_pass, db_uri, 
+                                                   currency_code, currency_symbol, smtp_server, smtp_port, smtp_sender, smtp_password
+                                            FROM users WHERE email = ?
+                                        """, (reg_email.strip().lower(),))
+                                        u_row = c.fetchone()
+                                        st.session_state.authenticated_user = {
+                                            "id": u_row[0], "email": u_row[1], "db_dialect": u_row[2] or "PostgreSQL / Neon",
+                                            "db_host": u_row[3] or "", "db_port": u_row[4] or "5432", "db_name": u_row[5] or "",
+                                            "db_user": u_row[6] or "", "db_pass": u_row[7] or "", "db_uri": u_row[8] or "",
+                                            "currency_code": u_row[9] or "INR", "currency_symbol": u_row[10] or "₹",
+                                            "smtp_server": u_row[11] or "", "smtp_port": u_row[12] or 587,
+                                            "smtp_sender": u_row[13] or "", "smtp_password": u_row[14] or ""
+                                        }
+                                        st.toast(f"Operator Authenticated via OTP: {reg_email}", icon="⚡")
+                                        st.rerun()
+                                    else:
+                                        st.error("Invalid or expired OTP code.")
+                            except Exception as err:
+                                st.error(f"Authentication failure: {err}")
+
+                elif recovery_choice == "Option 2: Reset password via email link":
+                    st.caption("A secure password reset link will be sent to your registered email.")
+                    
+                    if st.button("SEND PASSWORD RESET LINK", use_container_width=True):
+                        if reg_email:
+                            ok, token_or_msg = generate_reset_token(reg_email)
+                            if ok:
+                                reset_url = f"https://inventro.streamlit.app/?reset_token={token_or_msg}"
+                                body = f"Click the link below to reset your inventro.ai account password:\n\n{reset_url}\n\nIf you did not request this, you can ignore this email."
+                                mail_sent, _ = send_system_email(reg_email, "inventro.ai • Password Reset Link", body)
+                                if mail_sent:
+                                    st.success(f"Password reset link dispatched to {reg_email}.")
+                                else:
+                                    st.info(f"Reset Link Generated: [Click Here to Reset Password]({reset_url}) *(SMTP offline, displaying direct link)*")
+                            else:
+                                st.error(token_or_msg)
+                        else:
+                            st.warning("Please enter your registered email.")
+
         with auth_tab_signup:
             st.markdown("##### Create Operator Profile")
             signup_email = st.text_input("Operator Email", key="signup_email")
-            signup_pass = st.text_input("Passcode", type="password", key="signup_pass")
-            signup_pass2 = st.text_input("Confirm Passcode", type="password", key="signup_pass2")
+            signup_pass = st.text_input("Password", type="password", key="signup_pass")
+            signup_pass2 = st.text_input("Confirm Password", type="password", key="signup_pass2")
             
             if st.button("GENERATE SECURE VAULT", use_container_width=True):
                 if not signup_email or not signup_pass:
                     st.warning("All credentials required.")
                 elif signup_pass != signup_pass2:
-                    st.error("Passcodes do not match.")
+                    st.error("Passwords do not match.")
                 elif len(signup_pass) < 6:
-                    st.error("Passcode must be at least 6 characters.")
+                    st.error("Password must be at least 6 characters.")
                 else:
                     success, msg = create_user_account(signup_email, signup_pass)
                     if success:
                         st.success("Operator registered. Log in to continue.")
                     else:
                         st.error(msg)
-
-        with auth_tab_reset:
-            st.markdown("##### Account Recovery & Credential Reset")
-            reset_mode = st.radio("Recovery Method:", ["✉️ OTP via Email", "🔒 Direct Override"], horizontal=True)
-            recovery_email = st.text_input("Registered Operator Email", key="recovery_email")
-
-            if reset_mode == "✉️ OTP via Email":
-                st.caption("Sends a 6-digit one-time code to verify your identity.")
-                if st.button("SEND 6-DIGIT OTP CODE", use_container_width=True):
-                    if recovery_email:
-                        ok, token_or_msg = set_user_otp(recovery_email)
-                        if ok:
-                            try:
-                                with get_vault_connection() as conn:
-                                    c = conn.cursor()
-                                    c.execute("SELECT smtp_server, smtp_port, smtp_sender, smtp_password FROM users WHERE email = ?", (recovery_email.strip().lower(),))
-                                    smtp_info = c.fetchone()
-                                
-                                if smtp_info and smtp_info[0] and smtp_info[2] and smtp_info[3]:
-                                    msg = MIMEText(f"Your inventro.ai password reset OTP code is: {token_or_msg}\n\nValid for immediate use.")
-                                    msg["Subject"] = "inventro.ai Password Reset OTP"
-                                    msg["From"] = smtp_info[2]
-                                    msg["To"] = recovery_email.strip()
-                                    server = smtplib.SMTP(smtp_info[0], int(smtp_info[1] or 587), timeout=10)
-                                    server.starttls()
-                                    server.login(smtp_info[2], smtp_info[3])
-                                    server.send_message(msg)
-                                    server.quit()
-                                    st.success(f"OTP sent to {recovery_email} via SMTP.")
-                                else:
-                                    st.info(f"Operator OTP generated: **{token_or_msg}** *(SMTP unconfigured, displaying on-screen token)*")
-                            except Exception as mail_err:
-                                st.warning(f"SMTP error ({mail_err}). Temporary on-screen OTP: **{token_or_msg}**")
-                        else:
-                            st.error(token_or_msg)
-                    else:
-                        st.warning("Please enter your registered operator email.")
-
-                otp_code = st.text_input("Enter 6-Digit OTP", key="reset_otp_input")
-                new_pw = st.text_input("Enter New Password", type="password", key="reset_new_pw")
-                confirm_pw = st.text_input("Confirm New Password", type="password", key="reset_confirm_pw")
-
-                if st.button("VERIFY OTP & UPDATE PASSWORD", type="primary", use_container_width=True):
-                    if not recovery_email or not otp_code or not new_pw:
-                        st.warning("All fields are required.")
-                    elif new_pw != confirm_pw:
-                        st.error("Passwords do not match.")
-                    elif len(new_pw) < 6:
-                        st.error("Password must be at least 6 characters.")
-                    else:
-                        ok, msg = verify_otp_and_update_pw(recovery_email, otp_code, new_pw)
-                        if ok:
-                            st.success(msg)
-                        else:
-                            st.error(msg)
-
-            else:
-                st.caption("Direct override for administrator and local access recovery.")
-                direct_new_pw = st.text_input("New Password", type="password", key="direct_pw")
-                direct_confirm_pw = st.text_input("Confirm Password", type="password", key="direct_confirm_pw")
-
-                if st.button("OVERRIDE & SAVE NEW PASSWORD", type="primary", use_container_width=True):
-                    if not recovery_email or not direct_new_pw:
-                        st.warning("Please provide email and new password.")
-                    elif direct_new_pw != direct_confirm_pw:
-                        st.error("Passwords do not match.")
-                    elif len(direct_new_pw) < 6:
-                        st.error("Password must be at least 6 characters.")
-                    else:
-                        ok, msg = direct_reset_password(recovery_email, direct_new_pw)
-                        if ok:
-                            st.success(msg)
-                        else:
-                            st.error(msg)
-
     st.stop()
 
 current_user = st.session_state.authenticated_user
@@ -510,6 +568,10 @@ c_mult = active_currency["rate_multiplier"]
 def format_currency(amount_usd: float) -> str:
     converted = amount_usd * (c_mult if c_code != "USD" else 1.0)
     return f"{c_sym}{converted:,.2f}"
+
+# Navigation State: Defaults to Overview Dashboard
+if "active_page" not in st.session_state:
+    st.session_state.active_page = "dashboard"
 
 # ==========================================
 # 2. SCHEMA NORMALIZATION & SANITIZATION
@@ -1262,7 +1324,7 @@ elif st.session_state.active_page == "db_terminal":
                 except Exception as q_err:
                     st.error(f"Query error: {q_err}")
 
-# 10. PROFILE & VAULT (Placed at the end of navigation list)
+# 10. PROFILE & VAULT
 elif st.session_state.active_page == "profile":
     st.markdown("##### **👤 Operator Profile & Encrypted Vault**")
     st.caption("Manage regional currency localization, database credentials, and SMTP dispatchers.")
@@ -1306,7 +1368,7 @@ elif st.session_state.active_page == "profile":
                 if "PostgreSQL" in p_dialect:
                     p_uri = f"postgresql://{p_user}:{p_pass}@{p_host}:{p_port or '5432'}/{clean_name}?sslmode=require"
                 elif "MySQL" in p_dialect or "MariaDB" in p_dialect:
-                    p_uri = f"mysql+pymysql://{db_user}:{db_pass}@{p_host}:{p_port or '3306'}/{clean_name}"
+                    p_uri = f"mysql+pymysql://{db_user}:{db_pass}@{p_host}:{db_port or '3306'}/{clean_name}"
                 elif "SQLite" in p_dialect:
                     p_uri = f"sqlite:///{clean_name}.db"
                 else:
