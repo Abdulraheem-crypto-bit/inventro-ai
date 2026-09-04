@@ -317,24 +317,26 @@ def send_system_email(recipient: str, subject: str, body: str) -> tuple[bool, st
             c.execute("SELECT smtp_server, smtp_port, smtp_sender, smtp_password FROM users WHERE email = ?", (recipient.strip().lower(),))
             smtp_info = c.fetchone()
             if not (smtp_info and smtp_info[0] and smtp_info[2] and smtp_info[3]):
-                c.execute("SELECT smtp_server, smtp_port, smtp_sender, smtp_password FROM users WHERE smtp_server != '' LIMIT 1")
+                c.execute("SELECT smtp_server, smtp_port, smtp_sender, smtp_password FROM users WHERE smtp_server != '' AND smtp_password != '' LIMIT 1")
                 smtp_info = c.fetchone()
 
-        if smtp_info and smtp_info[0] and smtp_info[2] and smtp_info[3]:
-            msg = MIMEText(body)
-            msg["Subject"] = subject
-            msg["From"] = smtp_info[2]
-            msg["To"] = recipient.strip()
-            server = smtplib.SMTP(smtp_info[0], int(smtp_info[1] or 587), timeout=10)
-            server.starttls()
-            server.login(smtp_info[2], smtp_info[3])
-            server.send_message(msg)
-            server.quit()
-            return True, "Email sent successfully via SMTP."
-        else:
-            return False, "SMTP unconfigured. Displaying on-screen fallback."
+        if not (smtp_info and smtp_info[0] and smtp_info[2] and smtp_info[3]):
+            return False, "SMTP configuration missing: Please set up SMTP credentials in the Profile tab."
+
+        msg = MIMEMultipart()
+        msg["From"] = smtp_info[2]
+        msg["To"] = recipient.strip()
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+
+        server = smtplib.SMTP(smtp_info[0], int(smtp_info[1] or 587), timeout=15)
+        server.starttls()
+        server.login(smtp_info[2], smtp_info[3])
+        server.send_message(msg)
+        server.quit()
+        return True, f"Security dispatch delivered to {recipient.strip()}."
     except Exception as e:
-        return False, f"SMTP dispatch notice: {str(e)}"
+        return False, f"SMTP relay transmission error: {str(e)}"
 
 def set_user_otp(email: str) -> tuple[bool, str]:
     clean_email = email.strip().lower()
@@ -464,27 +466,34 @@ if not st.session_state.authenticated_user:
                 reg_email = st.text_input("Registered Email Address", key="reg_email_field", placeholder="operator@retail.com")
 
                 if recovery_choice == "Option 1: Send OTP to registered email":
-                    st.caption("A 6-digit one-time passcode will be transmitted to your email to log you in directly.")
+                    st.caption("A 6-digit access OTP will be dispatched exclusively to your registered inbox.")
                     
                     if st.button("DISPATCH LOGIN OTP", use_container_width=True):
                         if reg_email:
                             ok, otp_or_msg = set_user_otp(reg_email)
                             if ok:
-                                body = f"Your inventro.ai direct-login OTP is: {otp_or_msg}\n\nThis one-time password grants immediate access to your mission control terminal."
-                                mail_sent, _ = send_system_email(reg_email, "inventro.ai • One-Time Access Code", body)
-                                if mail_sent:
-                                    st.success(f"One-time password dispatched to {reg_email}.")
+                                body = (
+                                    f"INVENTRO.AI SECURITY VERIFICATION\n\n"
+                                    f"Your single-use login OTP code is: {otp_or_msg}\n\n"
+                                    f"This code expires immediately after successful verification.\n"
+                                    f"If you did not request this code, contact your system administrator."
+                                )
+                                sent, status_msg = send_system_email(
+                                    reg_email,
+                                    "inventro.ai • One-Time Access Verification Code",
+                                    body
+                                )
+                                if sent:
+                                    st.success(f"Security code dispatched to `{reg_email}`. Please check your inbox.")
                                 else:
-                                    st.info(f"Operator OTP generated: **{otp_or_msg}** *(SMTP offline, showing on-screen)*")
-                            else:
-                                st.error(otp_or_msg)
+                                    st.error(status_msg)
                         else:
-                            st.warning("Please enter your registered email.")
+                            st.warning("Please provide your registered operator email.")
 
-                    otp_input = st.text_input("Enter 6-Digit OTP", key="login_otp_input")
+                    otp_input = st.text_input("Enter 6-Digit OTP from Email", key="login_otp_input")
                     if st.button("VERIFY OTP & LOG IN", type="primary", use_container_width=True):
                         if not reg_email or not otp_input:
-                            st.warning("Please enter both email and OTP.")
+                            st.warning("Both registered email and OTP are required.")
                         else:
                             try:
                                 with get_vault_connection() as conn:
@@ -509,31 +518,40 @@ if not st.session_state.authenticated_user:
                                             "smtp_server": u_row[11] or "", "smtp_port": u_row[12] or 587,
                                             "smtp_sender": u_row[13] or "", "smtp_password": u_row[14] or ""
                                         }
-                                        st.toast(f"Operator Authenticated via OTP: {reg_email}", icon="⚡")
+                                        st.toast(f"Operator Authenticated: {reg_email}", icon="⚡")
                                         st.rerun()
                                     else:
-                                        st.error("Invalid or expired OTP code.")
+                                        st.error("Authentication rejected: Invalid or expired OTP.")
                             except Exception as err:
-                                st.error(f"Authentication failure: {err}")
+                                st.error(f"Vault verification error: {err}")
 
                 elif recovery_choice == "Option 2: Reset password via email link":
-                    st.caption("A secure password reset link will be sent to your registered email.")
+                    st.caption("A secure tokenized URL will be delivered to your inbox to reset your password.")
                     
                     if st.button("SEND PASSWORD RESET LINK", use_container_width=True):
                         if reg_email:
                             ok, token_or_msg = generate_reset_token(reg_email)
                             if ok:
                                 reset_url = f"https://inventro.streamlit.app/?reset_token={token_or_msg}"
-                                body = f"Click the link below to reset your inventro.ai account password:\n\n{reset_url}\n\nIf you did not request this, you can ignore this email."
-                                mail_sent, _ = send_system_email(reg_email, "inventro.ai • Password Reset Link", body)
-                                if mail_sent:
-                                    st.success(f"Password reset link dispatched to {reg_email}.")
+                                body = (
+                                    f"INVENTRO.AI PASSWORD RESET REQUEST\n\n"
+                                    f"Click the link below to configure a new operator secret:\n"
+                                    f"{reset_url}\n\n"
+                                    f"If you did not request a credential reset, please disregard this email."
+                                )
+                                sent, status_msg = send_system_email(
+                                    reg_email,
+                                    "inventro.ai • Secure Password Reset Link",
+                                    body
+                                )
+                                if sent:
+                                    st.success(f"Password reset link dispatched to `{reg_email}`. Check your inbox.")
                                 else:
-                                    st.info(f"Reset Link Generated: [Click Here to Reset Password]({reset_url}) *(SMTP offline, displaying direct link)*")
-                            else:
-                                st.error(token_or_msg)
+                                    st.error(status_msg)
                         else:
-                            st.warning("Please enter your registered email.")
+                            st.error(token_or_msg)
+                    else:
+                        st.warning("Please provide your registered operator email.")
 
         with auth_tab_signup:
             st.markdown("##### Create Operator Profile")
@@ -1368,7 +1386,7 @@ elif st.session_state.active_page == "profile":
                 if "PostgreSQL" in p_dialect:
                     p_uri = f"postgresql://{p_user}:{p_pass}@{p_host}:{p_port or '5432'}/{clean_name}?sslmode=require"
                 elif "MySQL" in p_dialect or "MariaDB" in p_dialect:
-                    p_uri = f"mysql+pymysql://{db_user}:{db_pass}@{p_host}:{db_port or '3306'}/{clean_name}"
+                    p_uri = f"mysql+pymysql://{db_user}:{db_pass}@{p_host}:{p_port or '3306'}/{clean_name}"
                 elif "SQLite" in p_dialect:
                     p_uri = f"sqlite:///{clean_name}.db"
                 else:
