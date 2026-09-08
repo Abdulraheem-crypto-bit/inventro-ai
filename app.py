@@ -4,10 +4,13 @@ import math
 import json
 import random
 import secrets
+import smtplib
 import sqlite3
 import hashlib
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 import streamlit as st
 import pandas as pd
@@ -195,7 +198,7 @@ CURRENCY_PROFILES = {
 }
 
 # ==========================================
-# 1. SQLITE VAULT (WAL MODE)
+# 1. SQLITE VAULT CONCURRENCY (WAL MODE)
 # ==========================================
 VAULT_DB = "users_vault.db"
 
@@ -224,6 +227,10 @@ def init_vault_db():
                     db_uri TEXT DEFAULT '',
                     currency_code TEXT DEFAULT 'INR',
                     currency_symbol TEXT DEFAULT '₹',
+                    smtp_server TEXT DEFAULT '',
+                    smtp_port INTEGER DEFAULT 587,
+                    smtp_sender TEXT DEFAULT '',
+                    smtp_password TEXT DEFAULT '',
                     reset_token TEXT DEFAULT '',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -239,6 +246,10 @@ def init_vault_db():
                 ("db_uri", "TEXT DEFAULT ''"),
                 ("currency_code", "TEXT DEFAULT 'INR'"),
                 ("currency_symbol", "TEXT DEFAULT '₹'"),
+                ("smtp_server", "TEXT DEFAULT ''"),
+                ("smtp_port", "INTEGER DEFAULT 587"),
+                ("smtp_sender", "TEXT DEFAULT ''"),
+                ("smtp_password", "TEXT DEFAULT ''"),
                 ("reset_token", "TEXT DEFAULT ''")
             ]
             for col, col_type in migration_fields:
@@ -273,7 +284,7 @@ def verify_user(email: str, password: str):
             c = conn.cursor()
             c.execute("""
                 SELECT id, email, db_dialect, db_host, db_port, db_name, db_user, db_pass, db_uri, 
-                       currency_code, currency_symbol
+                       currency_code, currency_symbol, smtp_server, smtp_port, smtp_sender, smtp_password
                 FROM users WHERE email = ? AND password_hash = ?
             """, (clean_email, hash_pw(password)))
             row = c.fetchone()
@@ -289,7 +300,11 @@ def verify_user(email: str, password: str):
                     "db_pass": row[7] or "",
                     "db_uri": row[8] or "",
                     "currency_code": row[9] or "INR",
-                    "currency_symbol": row[10] or "₹"
+                    "currency_symbol": row[10] or "₹",
+                    "smtp_server": row[11] or "",
+                    "smtp_port": row[12] or 587,
+                    "smtp_sender": row[13] or "",
+                    "smtp_password": row[14] or ""
                 }
     except Exception:
         return None
@@ -302,7 +317,7 @@ def fetch_user_by_email(email: str):
             c = conn.cursor()
             c.execute("""
                 SELECT id, email, db_dialect, db_host, db_port, db_name, db_user, db_pass, db_uri, 
-                       currency_code, currency_symbol
+                       currency_code, currency_symbol, smtp_server, smtp_port, smtp_sender, smtp_password
                 FROM users WHERE email = ?
             """, (clean_email,))
             row = c.fetchone()
@@ -318,72 +333,113 @@ def fetch_user_by_email(email: str):
                     "db_pass": row[7] or "",
                     "db_uri": row[8] or "",
                     "currency_code": row[9] or "INR",
-                    "currency_symbol": row[10] or "₹"
+                    "currency_symbol": row[10] or "₹",
+                    "smtp_server": row[11] or "",
+                    "smtp_port": row[12] or 587,
+                    "smtp_sender": row[13] or "",
+                    "smtp_password": row[14] or ""
                 }
     except Exception:
         return None
     return None
 
 # ==========================================
-# AUTOMATED RECOVERY ENGINE (NO TOML NEEDED)
+# CENTRALIZED AUTONOMOUS DISPATCH RELAY
 # ==========================================
-def dispatch_automated_otp(email: str) -> tuple[bool, str]:
+def dispatch_platform_email(recipient: str, subject: str, body: str) -> tuple[bool, str]:
+    """
+    Autonomous platform-level mailer that sends OTPs and reset links
+    to ANY user without displaying codes or links on the screen.
+    """
+    smtp_srv = st.secrets.get("SYSTEM_SMTP_SERVER", os.environ.get("SYSTEM_SMTP_SERVER", ""))
+    smtp_prt = st.secrets.get("SYSTEM_SMTP_PORT", os.environ.get("SYSTEM_SMTP_PORT", 587))
+    smtp_snd = st.secrets.get("SYSTEM_SMTP_SENDER", os.environ.get("SYSTEM_SMTP_SENDER", ""))
+    smtp_pwd = st.secrets.get("SYSTEM_SMTP_PASSWORD", os.environ.get("SYSTEM_SMTP_PASSWORD", ""))
+
+    if not (smtp_srv and smtp_snd and smtp_pwd):
+        try:
+            with get_vault_connection() as conn:
+                c = conn.cursor()
+                c.execute("SELECT smtp_server, smtp_port, smtp_sender, smtp_password FROM users WHERE smtp_server != '' AND smtp_password != '' LIMIT 1")
+                row = c.fetchone()
+                if row:
+                    smtp_srv, smtp_prt, smtp_snd, smtp_pwd = row[0], row[1], row[2], row[3]
+        except Exception:
+            pass
+
+    if not (smtp_srv and smtp_snd and smtp_pwd):
+        return False, "System Email Service Not Configured. Please configure SYSTEM_SMTP_* in Streamlit Secrets."
+
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = f"inventro.ai Security <{smtp_snd}>"
+        msg["To"] = recipient.strip()
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+
+        server = smtplib.SMTP(smtp_srv, int(smtp_prt), timeout=15)
+        server.starttls()
+        server.login(smtp_snd, smtp_pwd)
+        server.send_message(msg)
+        server.quit()
+        return True, f"Security code dispatched to {recipient.strip()}."
+    except Exception as e:
+        return False, f"Dispatch failed: {str(e)}"
+
+def set_user_otp(email: str) -> tuple[bool, str]:
     clean_email = email.strip().lower()
+    otp_code = f"{random.randint(100000, 999999)}"
     try:
         with get_vault_connection() as conn:
             c = conn.cursor()
-            c.execute("SELECT id FROM users WHERE email = ?", (clean_email,))
-            if not c.fetchone():
-                return False, "This email is not registered in inventro.ai."
-            
-            otp_code = f"{random.randint(100000, 999999)}"
             c.execute("UPDATE users SET reset_token = ? WHERE email = ?", (otp_code, clean_email))
             conn.commit()
-            return True, otp_code
+            if c.rowcount > 0:
+                return True, otp_code
+            return False, "No operator account found with this email."
     except Exception as e:
         return False, str(e)
 
-def verify_automated_otp_login(email: str, entered_otp: str) -> tuple[bool, str]:
+def generate_reset_token(email: str) -> tuple[bool, str]:
     clean_email = email.strip().lower()
+    token = secrets.token_urlsafe(24)
     try:
         with get_vault_connection() as conn:
             c = conn.cursor()
-            c.execute("SELECT reset_token FROM users WHERE email = ?", (clean_email,))
-            row = c.fetchone()
-            if not row or not row[0]:
-                return False, "No active OTP generated for this email. Click Send OTP first."
-            if str(row[0]).strip() != str(entered_otp).strip():
-                return False, "Wrong OTP entered. Please verify and try again."
-            
-            c.execute("UPDATE users SET reset_token = '' WHERE email = ?", (clean_email,))
-            conn.commit()
-            return True, "Verified"
-    except Exception as e:
-        return False, str(e)
-
-def direct_reset_password(email: str, new_password: str) -> tuple[bool, str]:
-    clean_email = email.strip().lower()
-    try:
-        with get_vault_connection() as conn:
-            c = conn.cursor()
-            c.execute("UPDATE users SET password_hash = ?, reset_token = '' WHERE email = ?", (hash_pw(new_password), clean_email))
+            c.execute("UPDATE users SET reset_token = ? WHERE email = ?", (token, clean_email))
             conn.commit()
             if c.rowcount > 0:
-                return True, "Password updated successfully. You can now sign in."
-            return False, "This email is not registered in inventro.ai."
+                return True, token
+            return False, "No operator account found with this email."
     except Exception as e:
         return False, str(e)
 
-def save_user_credentials(user_id: int, dialect: str, host: str, port: str, dbname: str, user: str, pwd: str, uri: str, curr_code: str, curr_sym: str):
+def reset_password_with_token(token: str, new_password: str) -> tuple[bool, str]:
+    try:
+        with get_vault_connection() as conn:
+            c = conn.cursor()
+            c.execute("SELECT email FROM users WHERE reset_token = ? AND reset_token != ''", (token.strip(),))
+            row = c.fetchone()
+            if not row:
+                return False, "Invalid or expired reset token."
+            user_email = row[0]
+            c.execute("UPDATE users SET password_hash = ?, reset_token = '' WHERE email = ?", (hash_pw(new_password), user_email))
+            conn.commit()
+            return True, f"Password reset successful for {user_email}. You may now log in."
+    except Exception as e:
+        return False, str(e)
+
+def save_user_credentials(user_id: int, dialect: str, host: str, port: str, dbname: str, user: str, pwd: str, uri: str, curr_code: str, curr_sym: str, smtp_srv: str = "", smtp_prt: int = 587, smtp_snd: str = "", smtp_pwd: str = ""):
     try:
         with get_vault_connection() as conn:
             c = conn.cursor()
             c.execute("""
                 UPDATE users
                 SET db_dialect = ?, db_host = ?, db_port = ?, db_name = ?, db_user = ?, db_pass = ?, db_uri = ?,
-                    currency_code = ?, currency_symbol = ?
+                    currency_code = ?, currency_symbol = ?,
+                    smtp_server = ?, smtp_port = ?, smtp_sender = ?, smtp_password = ?
                 WHERE id = ?
-            """, (dialect, host, port, dbname, user, pwd, uri, curr_code, curr_sym, user_id))
+            """, (dialect, host, port, dbname, user, pwd, uri, curr_code, curr_sym, smtp_srv, smtp_prt, smtp_snd, smtp_pwd, user_id))
             conn.commit()
     except Exception as e:
         st.error(f"Failed to save credentials: {e}")
@@ -394,14 +450,39 @@ def save_user_credentials(user_id: int, dialect: str, host: str, port: str, dbna
 if "authenticated_user" not in st.session_state:
     st.session_state.authenticated_user = None
 
-if "last_generated_otp" not in st.session_state:
-    st.session_state.last_generated_otp = None
+query_params = st.query_params
+active_reset_token = query_params.get("reset_token", None)
 
 if not st.session_state.authenticated_user:
     st.markdown("<div style='text-align: center; padding: 50px 0 25px 0;'><h1 style='color: #00B2FF; font-weight: 800; letter-spacing: -0.03em;'>⚡ INVENTRO.AI</h1><p style='color: #8E9BAE; font-size: 1rem;'>Autonomous Retail Operating System & Machine Intelligence Control</p></div>", unsafe_allow_html=True)
     
     auth_col1, auth_col2, auth_col3 = st.columns([1, 1.25, 1])
     with auth_col2:
+        if active_reset_token:
+            st.markdown("<div class='dribbble-card'>", unsafe_allow_html=True)
+            st.markdown("##### 🔐 Set New Password")
+            st.caption("Secure password reset link authenticated.")
+            new_link_pw = st.text_input("New Password", type="password", key="new_link_pw")
+            confirm_link_pw = st.text_input("Confirm New Password", type="password", key="confirm_link_pw")
+
+            if st.button("UPDATE PASSWORD & PROCEED TO LOGIN", type="primary", use_container_width=True):
+                if not new_link_pw or not confirm_link_pw:
+                    st.warning("All fields are required.")
+                elif new_link_pw != confirm_link_pw:
+                    st.error("Passwords do not match.")
+                elif len(new_link_pw) < 6:
+                    st.error("Password must be at least 6 characters.")
+                else:
+                    ok, msg = reset_password_with_token(active_reset_token, new_link_pw)
+                    if ok:
+                        st.success(msg)
+                        st.query_params.clear()
+                        st.rerun()
+                    else:
+                        st.error(msg)
+            st.markdown("</div>", unsafe_allow_html=True)
+            st.stop()
+
         auth_tab_login, auth_tab_signup = st.tabs(["🔐 Sign In", "📝 Create Account"])
         
         with auth_tab_login:
@@ -421,65 +502,97 @@ if not st.session_state.authenticated_user:
                 else:
                     st.warning("Please provide operator email and password.")
 
-            # Instagram-style Automated Forgot Password module
             with st.expander("Forgot password?"):
                 st.markdown("<p style='font-size: 0.8rem; font-weight: 600; color: #8E9BAE;'>Select recovery path:</p>", unsafe_allow_html=True)
-                recovery_mode = st.radio(
-                    "Recovery Action:",
-                    ["Option 1: Send OTP to registered email (Direct Login)", "Option 2: Direct Reset Password"],
+                recovery_choice = st.radio(
+                    "Recovery Mode:",
+                    ["Option 1: Send OTP to registered email", "Option 2: Reset password via email link"],
                     label_visibility="collapsed",
-                    key="recovery_mode_radio"
+                    key="recovery_choice"
                 )
 
-                reg_recovery_email = st.text_input("Registered Email Address", key="reg_recovery_email", placeholder="operator@retail.com")
+                reg_email = st.text_input("Registered Email Address", key="reg_email_field", placeholder="operator@retail.com")
 
-                if "Option 1" in recovery_mode:
-                    st.caption("A 6-digit access code is generated for your registered email to log in directly.")
+                if recovery_choice == "Option 1: Send OTP to registered email":
+                    st.caption("A 6-digit access OTP will be dispatched exclusively to your registered inbox.")
                     
-                    if st.button("SEND OTP TO REGISTERED EMAIL", use_container_width=True):
-                        if reg_recovery_email:
-                            ok, res = dispatch_automated_otp(reg_recovery_email)
-                            if ok:
-                                st.session_state.last_generated_otp = res
-                                st.success(f"OTP code has been generated and transmitted for {reg_recovery_email}.")
-                            else:
-                                st.error(res)
+                    if st.button("DISPATCH LOGIN OTP", use_container_width=True):
+                        if reg_email:
+                            with st.spinner("Transmitting encrypted code to inbox..."):
+                                ok, otp_or_msg = set_user_otp(reg_email)
+                                if ok:
+                                    body = (
+                                        f"INVENTRO.AI LOGIN OTP\n\n"
+                                        f"Your one-time login passcode is: {otp_or_msg}\n\n"
+                                        f"Enter this code on the login page to immediately authenticate into your workspace.\n"
+                                        f"If you did not request this, please ignore this email."
+                                    )
+                                    sent, status_msg = dispatch_platform_email(
+                                        reg_email,
+                                        "inventro.ai • One-Time Access Verification Code",
+                                        body
+                                    )
+                                    if sent:
+                                        st.success(f"Security code sent to `{reg_email}`. Please check your inbox.")
+                                    else:
+                                        st.error(status_msg)
+                                else:
+                                    st.error(otp_or_msg)
                         else:
                             st.warning("Please enter your registered email address.")
 
-                    otp_input = st.text_input("Enter 6-Digit OTP", key="otp_input_val")
+                    otp_input = st.text_input("Enter 6-Digit OTP from Email", key="login_otp_input")
                     if st.button("VERIFY OTP & LOG IN", type="primary", use_container_width=True):
-                        if not reg_recovery_email or not otp_input:
-                            st.warning("Please provide both your registered email and the 6-digit OTP.")
+                        if not reg_email or not otp_input:
+                            st.warning("Both registered email and OTP are required.")
                         else:
-                            valid, msg = verify_automated_otp_login(reg_recovery_email, otp_input)
-                            if valid:
-                                u_data = fetch_user_by_email(reg_recovery_email)
-                                if u_data:
-                                    st.session_state.authenticated_user = u_data
-                                    st.toast(f"Access granted via verified OTP: {reg_recovery_email}", icon="⚡")
-                                    st.rerun()
-                            else:
-                                st.error(msg)
+                            try:
+                                with get_vault_connection() as conn:
+                                    c = conn.cursor()
+                                    c.execute("SELECT reset_token FROM users WHERE email = ?", (reg_email.strip().lower(),))
+                                    row = c.fetchone()
+                                    if row and row[0] and row[0].strip() == otp_input.strip():
+                                        c.execute("UPDATE users SET reset_token = '' WHERE email = ?", (reg_email.strip().lower(),))
+                                        conn.commit()
+                                        
+                                        u_data = fetch_user_by_email(reg_email)
+                                        if u_data:
+                                            st.session_state.authenticated_user = u_data
+                                            st.toast(f"Operator Authenticated: {reg_email}", icon="⚡")
+                                            st.rerun()
+                                    else:
+                                        st.error("Authentication rejected: Invalid or incorrect OTP.")
+                            except Exception as err:
+                                st.error(f"Vault verification error: {err}")
 
-                else:
-                    st.caption("Enter your registered email to immediately configure and apply a new password.")
-                    new_pw_val = st.text_input("New Password", type="password", key="new_direct_pw")
-                    confirm_pw_val = st.text_input("Confirm New Password", type="password", key="confirm_direct_pw")
-
-                    if st.button("RESET & SAVE NEW PASSWORD", type="primary", use_container_width=True):
-                        if not reg_recovery_email or not new_pw_val:
-                            st.warning("Please provide both your registered email and new password.")
-                        elif new_pw_val != confirm_pw_val:
-                            st.error("Passwords do not match.")
-                        elif len(new_pw_val) < 6:
-                            st.error("Password must be at least 6 characters.")
+                elif recovery_choice == "Option 2: Reset password via email link":
+                    st.caption("A secure tokenized URL will be sent to your email to reset your password.")
+                    
+                    if st.button("SEND PASSWORD RESET LINK", use_container_width=True):
+                        if reg_email:
+                            with st.spinner("Generating secure token and transmitting..."):
+                                ok, token_or_msg = generate_reset_token(reg_email)
+                                if ok:
+                                    reset_url = f"https://inventro.streamlit.app/?reset_token={token_or_msg}"
+                                    body = (
+                                        f"INVENTRO.AI PASSWORD RESET\n\n"
+                                        f"Click the link below to set a new password for your account:\n"
+                                        f"{reset_url}\n\n"
+                                        f"If you did not request a password reset, please ignore this email."
+                                    )
+                                    sent, status_msg = dispatch_platform_email(
+                                        reg_email,
+                                        "inventro.ai • Secure Password Reset Link",
+                                        body
+                                    )
+                                    if sent:
+                                        st.success(f"Password reset link sent to `{reg_email}`. Check your inbox.")
+                                    else:
+                                        st.error(status_msg)
+                                else:
+                                    st.error(token_or_msg)
                         else:
-                            success, msg = direct_reset_password(reg_recovery_email, new_pw_val)
-                            if success:
-                                st.success(msg)
-                            else:
-                                st.error(msg)
+                            st.warning("Please enter your registered email address.")
 
         with auth_tab_signup:
             st.markdown("##### Create Operator Profile")
@@ -515,7 +628,7 @@ def format_currency(amount_usd: float) -> str:
     converted = amount_usd * (c_mult if c_code != "USD" else 1.0)
     return f"{c_sym}{converted:,.2f}"
 
-# Navigation State
+# Navigation State: Defaults to Overview Dashboard
 if "active_page" not in st.session_state:
     st.session_state.active_page = "dashboard"
 
@@ -550,6 +663,21 @@ def clean_numeric_series(series: pd.Series, default_val=0) -> pd.Series:
         .replace("", np.nan)
     )
     return pd.to_numeric(cleaned, errors="coerce").fillna(default_val)
+
+def is_valid_inventory_schema(df: pd.DataFrame) -> bool:
+    """Verifies that the candidate table contains essential retail signals and rejects HR/employee datasets."""
+    if df.empty:
+        return False
+    cleaned_cols = [clean_str(c) for c in df.columns]
+    
+    # Reject non-inventory records (e.g., employee, salary, attendance)
+    disallowed = ["salary", "payroll", "hiredate", "ssn", "designation", "attendance", "hourlyrate", "employee"]
+    if any(any(d in col for d in disallowed) for col in cleaned_cols):
+        return False
+
+    has_identity = any(any(clean_str(syn) in col for syn in COLUMN_SYNONYMS["sku"] + COLUMN_SYNONYMS["name"]) for col in cleaned_cols)
+    has_inventory_metric = any(any(clean_str(syn) in col for syn in COLUMN_SYNONYMS["stock"] + COLUMN_SYNONYMS["price"]) for col in cleaned_cols)
+    return has_identity and has_inventory_metric
 
 def resolve_and_normalize(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     if df.empty:
@@ -690,21 +818,36 @@ with st.sidebar:
         st.rerun()
 
 # ==========================================
-# INGESTION & DATA RESOLUTION
+# INGESTION & DATA RESOLUTION WITH VALIDATION
 # ==========================================
 raw_products, raw_sales, raw_movements = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+non_inventory_warning = False
 
 if is_connected:
     try:
         with engine.connect() as conn:
             inspector = inspect(engine)
             tables = inspector.get_table_names()
-            prod_target = next((t for t in tables if any(k in t.lower() for k in ["product", "item", "inventory"])), None)
+            
+            prod_target = next((t for t in tables if t.lower() in ["products_master", "products", "inventory", "items"]), None)
+            
+            if not prod_target:
+                candidate_tables = [t for t in tables if any(k in t.lower() for k in ["product", "item", "inventory"])]
+                for cand in candidate_tables:
+                    sample_df = pd.read_sql(text(f"SELECT * FROM {cand} LIMIT 5"), conn)
+                    if is_valid_inventory_schema(sample_df):
+                        prod_target = cand
+                        break
+
             if prod_target:
                 raw_products = pd.read_sql(text(f"SELECT * FROM {prod_target}"), conn)
+            elif len(tables) > 0:
+                non_inventory_warning = True
+
             sales_target = next((t for t in tables if any(k in t.lower() for k in ["sale", "order", "txn"])), None)
             if sales_target:
                 raw_sales = pd.read_sql(text(f"SELECT * FROM {sales_target} ORDER BY 1 DESC LIMIT 2000"), conn)
+
             move_target = next((t for t in tables if any(k in t.lower() for k in ["movement", "audit", "log"])), None)
             if move_target:
                 raw_movements = pd.read_sql(text(f"SELECT * FROM {move_target} ORDER BY 1 DESC LIMIT 50"), conn)
@@ -818,9 +961,9 @@ eda_results = execute_autonomous_eda(df_products, df_sales, raw_movements)
 # AI COPILOT ENGINE (GPT-5.6 LUNA)
 # ==========================================
 def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, eda_data: dict) -> str:
-    api_key = os.environ.get("OPENAI_API_KEY", "")
+    api_key = st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
     if not api_key:
-        return "⚠️ OpenAI API key missing. Configure OPENAI_API_KEY in environment."
+        return "⚠️ OpenAI API key missing. Configure OPENAI_API_KEY in Streamlit Secrets."
     if not OPENAI_AVAILABLE:
         return "⚠️ `openai` library not found. Add `openai` to requirements.txt."
     try:
@@ -876,6 +1019,9 @@ st.markdown(f"""
 
 # 1. DASHBOARD OVERVIEW
 if st.session_state.active_page == "dashboard":
+    if non_inventory_warning:
+        st.warning("⚠️ Connected database contains tables, but none match a predictive retail inventory schema (e.g., employee or payroll records detected). Only stock datasets are ingested into predictive analytics.")
+
     r1_c1, r1_c2, r1_c3 = st.columns([1.2, 1.2, 1.6])
 
     with r1_c1:
@@ -910,6 +1056,8 @@ if st.session_state.active_page == "dashboard":
             st.plotly_chart(fig_donut, use_container_width=True, config={"displayModeBar": False})
         else:
             st.markdown(f"<div style='text-align:center; padding: 40px 0;'><h2>{total_stock:,} Units</h2><p>Telemetry Ready</p></div>", unsafe_allow_html=True)
+
+        st.markdown(f"<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.76rem; font-weight: 600; padding-top: 4px;'><div><span style='color:#00B2FF;'>●</span> Healthy: <b style='color:#FFF;'>{healthy_units}</b></div><div><span style='color:#FEB019;'>●</span> Restock: <b style='color:#FFF;'>{restock_needed}</b></div><div><span style='color:#00E396;'>●</span> Fast Mover: <b style='color:#FFF;'>{int(len(analytics_df)*0.2)}</b></div><div><span style='color:#FF4560;'>●</span> Spoilage: <b style='color:#FFF;'>{perish_alert}</b></div></div></div>", unsafe_allow_html=True)
 
     r2_c1, r2_c2 = st.columns([1.6, 1.1])
 
@@ -1077,6 +1225,9 @@ elif st.session_state.active_page == "eda_report":
 # 5. INVENTORY CATALOG
 elif st.session_state.active_page == "catalog":
     st.markdown("##### **📦 Real-Time Catalog & ABC-XYZ Pareto Matrix**")
+    if non_inventory_warning:
+        st.warning("⚠️ Connected database contains tables, but none match a predictive retail inventory schema (e.g., employee or payroll records detected). Only stock datasets are ingested into predictive analytics.")
+
     if not analytics_df.empty:
         search_q = st.text_input("Filter Catalog by Name, SKU, or Category:", placeholder="Search catalog...")
         filtered_df = analytics_df.copy()
@@ -1215,7 +1366,11 @@ elif st.session_state.active_page == "po_dispatch":
             st.text_area("PO Payload Preview", value=po_text, height=180)
             
             if st.button("DISPATCH RESTOCK PO", type="primary"):
-                st.success(f"Purchase order queued for {rcpt}!")
+                sent, dispatch_msg = dispatch_platform_email(rcpt, f"PO RESTOCK ORDER - {sel_v}", po_text)
+                if sent:
+                    st.success(f"Purchase order transmitted to {rcpt}!")
+                else:
+                    st.error(dispatch_msg)
     else:
         st.info("Database not connected.")
 
@@ -1243,7 +1398,7 @@ elif st.session_state.active_page == "db_terminal":
 
     with i_c2:
         st.markdown("**SQL Command Terminal**")
-        sql_input = st.text_area("Execute Query on Active DB:", placeholder="SELECT * FROM products_master LIMIT 5;")
+        sql_input = st.text_area("Execute Query on Active DB (Inventory, HR, or Custom Tables):", placeholder="SELECT * FROM products_master LIMIT 5;")
         if st.button("EXECUTE QUERY"):
             if sql_input and is_connected:
                 try:
@@ -1296,7 +1451,7 @@ elif st.session_state.active_page == "profile":
                 if "PostgreSQL" in p_dialect:
                     p_uri = f"postgresql://{p_user}:{p_pass}@{p_host}:{p_port or '5432'}/{clean_name}?sslmode=require"
                 elif "MySQL" in p_dialect or "MariaDB" in p_dialect:
-                    p_uri = f"mysql+pymysql://{db_user}:{db_pass}@{p_host}:{db_port or '3306'}/{clean_name}"
+                    p_uri = f"mysql+pymysql://{p_user}:{p_pass}@{p_host}:{p_port or '3306'}/{clean_name}"
                 elif "SQLite" in p_dialect:
                     p_uri = f"sqlite:///{clean_name}.db"
                 else:
@@ -1313,11 +1468,11 @@ elif st.session_state.active_page == "profile":
     with prof_c2:
         st.markdown("<div class='dribbble-card'>", unsafe_allow_html=True)
         st.markdown("###### **3. Platform Security**")
-        st.caption("Operator security operates autonomously across all workspace users.")
+        st.caption("Central relay automatically handles OTP authentication and password recovery for all operators.")
         st.markdown(f"• **Operator ID:** `{current_user.get('email', '')}`")
         st.markdown(f"• **Vault Engine:** `SQLite 3 (WAL Mode)`")
         st.markdown(f"• **Session Security:** `AES-SHA256 Tokenized`")
-        st.markdown(f"• **Direct Recovery System:** `Automated & Active`")
+        st.markdown(f"• **Relay Status:** `Autonomous Global Service Active`")
 
         if st.button("UPDATE VAULT & SAVE CONFIGURATION", type="primary", use_container_width=True):
             save_user_credentials(
