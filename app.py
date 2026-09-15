@@ -104,7 +104,7 @@ code, pre, .stCode {
 }
 
 /* ==========================================
-   KILL STREAMLIT DECORATION BAR & HEADER BARS
+   KILL STREAMLIT DECORATION & HEADER BARS
    ========================================== */
 [data-testid="stDecoration"] {
     display: none !important;
