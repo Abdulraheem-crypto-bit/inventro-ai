@@ -375,7 +375,7 @@ def dispatch_platform_email(recipient: str, subject: str, body_text: str) -> tup
         clean_recipient = recipient.strip()
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = f"inventro.ai Security <{smtp_snd}>"
+        msg["From"] = f"inventro.ai Platform <{smtp_snd}>"
         msg["To"] = clean_recipient
         msg["Reply-To"] = smtp_snd
         msg["Date"] = formatdate(localtime=True)
@@ -389,7 +389,7 @@ def dispatch_platform_email(recipient: str, subject: str, body_text: str) -> tup
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
         </head>
         <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0B0C10; margin: 0; padding: 24px; color: #F1F5F9;">
-          <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 520px; background-color: #141720; border: 1px solid #1E2330; border-radius: 16px; padding: 32px; margin: 0 auto;">
+          <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 540px; background-color: #141720; border: 1px solid #1E2330; border-radius: 16px; padding: 32px; margin: 0 auto;">
             <tr>
               <td>
                 <div style="font-size: 22px; font-weight: 800; color: #00B2FF; margin-bottom: 20px; letter-spacing: -0.02em;">
@@ -400,7 +400,7 @@ def dispatch_platform_email(recipient: str, subject: str, body_text: str) -> tup
                 </div>
                 <hr style="border: none; border-top: 1px solid #1E2330; margin: 24px 0;" />
                 <div style="font-size: 11px; line-height: 1.5; color: #64748B;">
-                  This is an automated operational security transmission sent by inventro.ai Autonomous Retail Operating System. If you did not initiate this authorization request, please ignore this transmission.
+                  This is an automated operational transmission dispatched by inventro.ai Autonomous Retail Operating System.
                 </div>
               </td>
             </tr>
@@ -417,7 +417,7 @@ def dispatch_platform_email(recipient: str, subject: str, body_text: str) -> tup
         server.login(smtp_snd, smtp_pwd)
         server.send_message(msg)
         server.quit()
-        return True, f"Security code dispatched to {clean_recipient}."
+        return True, f"Transmission successfully dispatched to {clean_recipient}."
     except Exception as e:
         return False, f"Dispatch failed: {str(e)}"
 
@@ -818,6 +818,7 @@ with st.sidebar:
         ("⚡ POS Scan & Intake", "pos_scan"),
         ("✉️ PO Dispatch", "po_dispatch"),
         ("🔌 DB Terminal", "db_terminal"),
+        ("💬 Help & Support", "support"),
         ("👤 Profile & Vault", "profile")
     ]
 
@@ -1458,7 +1459,116 @@ elif st.session_state.active_page == "db_terminal":
                 except Exception as q_err:
                     st.error(f"Query error: {q_err}")
 
-# 10. PROFILE & VAULT
+# 10. HELP & SUPPORT (TICKET INGESTION)
+elif st.session_state.active_page == "support":
+    st.markdown("##### **💬 Operator Help Desk & System Support**")
+    st.caption("Submit operational bugs, calculation issues, or DB anomalies directly to the engineering team.")
+
+    sup_col1, sup_col2 = st.columns([1.3, 1.0])
+
+    with sup_col1:
+        st.markdown("<div class='dribbble-card'>", unsafe_allow_html=True)
+        st.markdown("###### **Submit an Issue Ticket**")
+
+        ticket_type = st.selectbox(
+            "Issue Category",
+            [
+                "🐛 Bug Report / System Crash",
+                "🔌 Database Sync / Connection Issue",
+                "📈 Metric & Inventory Discrepancy",
+                "🤖 AI Copilot Malfunction",
+                "🔐 Authentication & OTP Routing",
+                "💡 Feature Request / Improvement"
+            ]
+        )
+
+        ticket_priority = st.select_slider(
+            "Priority Level",
+            options=["Low", "Medium", "High", "Critical 🚨"],
+            value="Medium"
+        )
+
+        ticket_subject = st.text_input(
+            "Summary / Subject",
+            placeholder="e.g., Stock count mismatch on Beverages after checkout"
+        )
+
+        ticket_description = st.text_area(
+            "Issue Description & Steps to Reproduce",
+            placeholder="Describe what happened, what was expected, and any error message you saw...",
+            height=160
+        )
+
+        include_telemetry = st.checkbox(
+            "Attach active fleet telemetry (Database dialect, currency code, SKU count)",
+            value=True
+        )
+
+        if st.button("TRANSMIT ISSUE TICKET", type="primary", use_container_width=True):
+            if not ticket_subject or not ticket_description:
+                st.warning("Please provide both a subject and a description.")
+            else:
+                admin_support_email = st.secrets.get(
+                    "SUPPORT_RECEIVER_EMAIL",
+                    st.secrets.get("SYSTEM_SMTP_SENDER", "")
+                )
+
+                if not admin_support_email:
+                    st.error("Support receiver email is not configured in Secrets.")
+                else:
+                    telemetry_block = ""
+                    if include_telemetry:
+                        telemetry_block = (
+                            f"\n--- SYSTEM CONTEXT ---\n"
+                            f"Operator: {current_user.get('email', 'N/A')}\n"
+                            f"Dialect: {current_user.get('db_dialect', 'N/A')}\n"
+                            f"Currency: {c_code} ({c_sym.strip()})\n"
+                            f"Catalog Size: {len(analytics_df)} SKUs\n"
+                            f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+                        )
+
+                    mail_body = (
+                        f"NEW SUPPORT TICKET\n\n"
+                        f"Category: {ticket_type}\n"
+                        f"Priority: {ticket_priority}\n"
+                        f"From: {current_user.get('email', 'N/A')}\n\n"
+                        f"Subject: {ticket_subject}\n\n"
+                        f"Details:\n{ticket_description}\n"
+                        f"{telemetry_block}"
+                    )
+
+                    with st.spinner("Dispatching issue report to engineering inbox..."):
+                        sent, status_msg = dispatch_platform_email(
+                            admin_support_email,
+                            f"[{ticket_priority}] Support Ticket: {ticket_subject}",
+                            mail_body
+                        )
+
+                        if sent:
+                            st.success(f"Ticket submitted successfully! A report has been routed to `{admin_support_email}`.")
+                        else:
+                            st.error(f"Failed to transmit ticket: {status_msg}")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with sup_col2:
+        st.markdown("<div class='dribbble-card'>", unsafe_allow_html=True)
+        st.markdown("###### **Support & Service Level**")
+        st.markdown("""
+        - **Critical Issues:** Handled within 1–2 hours.
+        - **Database Pipeline Errors:** Handled within 4–6 hours.
+        - **General Queries / Feature Requests:** Addressed within 24 hours.
+        """)
+        st.markdown("<hr style='border-color: #1E2330; margin: 15px 0;'>", unsafe_allow_html=True)
+        st.markdown("###### **Quick Self-Check**")
+        st.markdown("""
+        - Ensure your database allows incoming SSL connections (`sslmode=require`).
+        - Confirm OpenAI API keys have active token balance.
+        - Verify column aliases using the **14-Point EDA Audit** tab.
+        """)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# 11. PROFILE & VAULT
 elif st.session_state.active_page == "profile":
     st.markdown("##### **👤 Operator Profile & Encrypted Vault**")
     st.caption("Manage regional currency localization and personal database connection strings.")
