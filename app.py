@@ -9,6 +9,7 @@ import sqlite3
 import hashlib
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from email.utils import make_msgid, formatdate
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -344,10 +345,13 @@ def fetch_user_by_email(email: str):
     return None
 
 # ==========================================
-# CENTRALIZED AUTONOMOUS DISPATCH RELAY
+# ANTI-SPAM OPTIMIZED AUTONOMOUS RELAY
 # ==========================================
-def dispatch_platform_email(recipient: str, subject: str, body: str) -> tuple[bool, str]:
-    """Autonomous platform-level mailer that sends OTPs and reset links to user email."""
+def dispatch_platform_email(recipient: str, subject: str, body_text: str) -> tuple[bool, str]:
+    """
+    Autonomous transactional mailer with RFC-compliant headers
+    and multipart HTML templates to prevent delivery to Spam/Junk filters.
+    """
     smtp_srv = st.secrets.get("SYSTEM_SMTP_SERVER", os.environ.get("SYSTEM_SMTP_SERVER", ""))
     smtp_prt = st.secrets.get("SYSTEM_SMTP_PORT", os.environ.get("SYSTEM_SMTP_PORT", 587))
     smtp_snd = st.secrets.get("SYSTEM_SMTP_SENDER", os.environ.get("SYSTEM_SMTP_SENDER", ""))
@@ -368,18 +372,52 @@ def dispatch_platform_email(recipient: str, subject: str, body: str) -> tuple[bo
         return False, "System Email Service Not Configured. Please configure SYSTEM_SMTP_* in Streamlit Secrets."
 
     try:
-        msg = MIMEMultipart()
-        msg["From"] = f"inventro.ai Security <{smtp_snd}>"
-        msg["To"] = recipient.strip()
+        clean_recipient = recipient.strip()
+        msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain"))
+        msg["From"] = f"inventro.ai Security <{smtp_snd}>"
+        msg["To"] = clean_recipient
+        msg["Reply-To"] = smtp_snd
+        msg["Date"] = formatdate(localtime=True)
+        msg["Message-ID"] = make_msgid(domain="inventro.ai")
+
+        html_body = f"""\
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0B0C10; margin: 0; padding: 24px; color: #F1F5F9;">
+          <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 520px; background-color: #141720; border: 1px solid #1E2330; border-radius: 16px; padding: 32px; margin: 0 auto;">
+            <tr>
+              <td>
+                <div style="font-size: 22px; font-weight: 800; color: #00B2FF; margin-bottom: 20px; letter-spacing: -0.02em;">
+                  ⚡ INVENTRO.AI
+                </div>
+                <div style="font-size: 14px; line-height: 1.6; color: #CBD5E1; white-space: pre-line; margin-bottom: 28px;">
+                  {body_text}
+                </div>
+                <hr style="border: none; border-top: 1px solid #1E2330; margin: 24px 0;" />
+                <div style="font-size: 11px; line-height: 1.5; color: #64748B;">
+                  This is an automated operational security transmission sent by inventro.ai Autonomous Retail Operating System. If you did not initiate this authorization request, please ignore this transmission.
+                </div>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
+        """
+
+        msg.attach(MIMEText(body_text, "plain", "utf-8"))
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
 
         server = smtplib.SMTP(smtp_srv, int(smtp_prt), timeout=15)
         server.starttls()
         server.login(smtp_snd, smtp_pwd)
         server.send_message(msg)
         server.quit()
-        return True, f"Security code dispatched to {recipient.strip()}."
+        return True, f"Security code dispatched to {clean_recipient}."
     except Exception as e:
         return False, f"Dispatch failed: {str(e)}"
 
@@ -502,7 +540,6 @@ if not st.session_state.authenticated_user:
             with st.expander("Forgot password?"):
                 st.markdown("<p style='font-size: 0.8rem; font-weight: 600; color: #8E9BAE;'>Account Recovery Workflow:</p>", unsafe_allow_html=True)
                 
-                # Step 1: Ask for registered email first
                 recovery_email_input = st.text_input("Enter Registered Email", key="recovery_email_step1", placeholder="operator@retail.com")
 
                 if recovery_email_input:
@@ -512,7 +549,6 @@ if not st.session_state.authenticated_user:
                     else:
                         st.success("Email verified. Choose your recovery method below:")
                         
-                        # Step 2: Choose recovery method
                         recovery_method = st.radio(
                             "Select Recovery Action:",
                             ["Option 1: Send OTP to Email (Direct Login)", "Option 2: Send Password Reset Link to Email"],
@@ -524,14 +560,14 @@ if not st.session_state.authenticated_user:
                                 ok, otp_code = set_user_otp(recovery_email_input)
                                 if ok:
                                     body = (
-                                        f"INVENTRO.AI LOGIN OTP\n\n"
+                                        f"Operator Authentication Request\n\n"
                                         f"Your one-time login passcode is: {otp_code}\n\n"
-                                        f"Enter this code on the login page to authenticate into your workspace.\n"
-                                        f"If you did not request this, please ignore this email."
+                                        f"Enter this code on the workspace gateway to authenticate immediately.\n\n"
+                                        f"Security notice: This verification code expires in 10 minutes."
                                     )
                                     sent, status_msg = dispatch_platform_email(
                                         recovery_email_input,
-                                        "inventro.ai • One-Time Access Verification Code",
+                                        "inventro.ai • Security Access Verification Code",
                                         body
                                     )
                                     if sent:
@@ -541,7 +577,6 @@ if not st.session_state.authenticated_user:
                                 else:
                                     st.error(otp_code)
 
-                            # Input field to verify the received OTP
                             entered_otp = st.text_input("Enter 6-Digit OTP from Email", key="otp_verify_box")
                             if st.button("VERIFY OTP & SIGN IN", type="primary", use_container_width=True):
                                 if entered_otp:
@@ -570,14 +605,14 @@ if not st.session_state.authenticated_user:
                                 if ok:
                                     reset_url = f"https://inventro.streamlit.app/?reset_token={reset_token}"
                                     body = (
-                                        f"INVENTRO.AI PASSWORD RESET\n\n"
-                                        f"Click the secure link below to set a new password for your account:\n"
+                                        f"Operator Password Recovery Request\n\n"
+                                        f"Click the link below to initialize a password reset for your operator vault:\n"
                                         f"{reset_url}\n\n"
-                                        f"If you did not request a password reset, please ignore this email."
+                                        f"If you did not request this credential update, no action is required."
                                     )
                                     sent, status_msg = dispatch_platform_email(
                                         recovery_email_input,
-                                        "inventro.ai • Secure Password Reset Link",
+                                        "inventro.ai • Secure Password Recovery Action",
                                         body
                                     )
                                     if sent:
@@ -617,9 +652,8 @@ c_sym = active_currency["symbol"]
 c_code = active_currency["code"]
 c_mult = active_currency["rate_multiplier"]
 
-def format_currency(amount_usd: float) -> str:
-    converted = amount_usd * (c_mult if c_code != "USD" else 1.0)
-    return f"{c_sym}{converted:,.2f}"
+def format_currency(amount: float) -> str:
+    return f"{c_sym}{amount:,.2f}"
 
 # Navigation State: Defaults to Overview Dashboard
 if "active_page" not in st.session_state:
@@ -658,12 +692,10 @@ def clean_numeric_series(series: pd.Series, default_val=0) -> pd.Series:
     return pd.to_numeric(cleaned, errors="coerce").fillna(default_val)
 
 def is_valid_inventory_schema(df: pd.DataFrame) -> bool:
-    """Verifies that the candidate table contains essential retail signals and rejects HR/employee datasets."""
     if df.empty:
         return False
     cleaned_cols = [clean_str(c) for c in df.columns]
     
-    # Reject non-inventory records (e.g., employee, salary, attendance)
     disallowed = ["salary", "payroll", "hiredate", "ssn", "designation", "attendance", "hourlyrate", "employee"]
     if any(any(d in col for d in disallowed) for col in cleaned_cols):
         return False
@@ -837,11 +869,11 @@ if is_connected:
             elif len(tables) > 0:
                 non_inventory_warning = True
 
-            sales_target = next((t for t in tables if any(k in t.lower() for k in ["sale", "order", "txn"])), None)
+            sales_target = next((t for t in tables if any(k in t.lower() for k in ["sales_ledger", "sales", "order", "txn"])), None)
             if sales_target:
                 raw_sales = pd.read_sql(text(f"SELECT * FROM {sales_target} ORDER BY 1 DESC LIMIT 2000"), conn)
 
-            move_target = next((t for t in tables if any(k in t.lower() for k in ["movement", "audit", "log"])), None)
+            move_target = next((t for t in tables if any(k in t.lower() for k in ["stock_movements", "movement", "audit", "log"])), None)
             if move_target:
                 raw_movements = pd.read_sql(text(f"SELECT * FROM {move_target} ORDER BY 1 DESC LIMIT 50"), conn)
     except Exception as e:
@@ -978,14 +1010,33 @@ def intelligent_ai_agent(user_query: str, matrix: pd.DataFrame, eda_data: dict) 
     except Exception as err:
         return f"⚠️ AI Engine Exception: {str(err)}"
 
-# Metrics calculation
+# ==========================================
+# DYNAMIC DATABASE-SYNCED METRICS
+# ==========================================
 total_stock = int(analytics_df['stock'].sum()) if not analytics_df.empty else 0
 restock_needed = int((analytics_df['reorder_status'] == 'RESTOCK NEEDED').sum()) if not analytics_df.empty else 0
 healthy_units = int((analytics_df['reorder_status'] == 'HEALTHY').sum()) if not analytics_df.empty else 0
 perish_alert = int((analytics_df['expiry_risk'] == 'HIGH EXPIRY RISK').sum()) if not analytics_df.empty else 0
-nominal_revenue_val = format_currency(total_stock * 32.40)
-nominal_balance_val = format_currency(78500.00)
-replenish_outlay_val = format_currency(12980.00)
+
+# 1. Real Inventory Valuation (Stock * Unit Price)
+inventory_valuation = float((analytics_df['stock'] * analytics_df['price']).sum()) if not analytics_df.empty else 0.0
+nominal_balance_val = format_currency(inventory_valuation)
+
+# 2. Real Ledger Revenue (Total Sold * Price)
+if not df_sales.empty and "quantity_sold" in df_sales.columns and "price" in df_sales.columns:
+    real_revenue = float((df_sales["quantity_sold"] * df_sales["price"]).sum())
+elif not analytics_df.empty and "total_sold" in analytics_df.columns:
+    real_revenue = float((analytics_df["total_sold"] * analytics_df["price"]).sum())
+else:
+    real_revenue = 0.0
+nominal_revenue_val = format_currency(real_revenue)
+
+# 3. Dynamic Restock Replenishment Outlay (Suggested PO Units * Price)
+if not analytics_df.empty and "suggested_po_qty" in analytics_df.columns:
+    real_po_outlay = float((analytics_df["suggested_po_qty"] * analytics_df["price"]).sum())
+else:
+    real_po_outlay = 0.0
+replenish_outlay_val = format_currency(real_po_outlay)
 
 # ==========================================
 # TOP HEADER BAR
@@ -1001,7 +1052,7 @@ st.markdown(f"""
         </div>
         <div style='display: flex; align-items: center; gap: 8px;'>
             <span style='background: #141720; border: 1px solid #1E2330; padding: 6px 12px; border-radius: 20px; font-size: 0.75rem; color: #94A3B8;'>Connected: <b style='color:#00E396;'>Postgres</b></span>
-            <span style='background: #141720; border: 1px solid #1E2330; padding: 6px 12px; border-radius: 20px; font-size: 0.75rem; color: #94A3B8;'>SLA: <b style='color:#00B2FF;'>99.98%</b></span>
+            <span style='background: #141720; border: 1px solid #1E2330; padding: 6px 12px; border-radius: 20px; font-size: 0.75rem; color: #00B2FF;'>SLA: <b style='color:#00B2FF;'>99.98%</b></span>
         </div>
     </div>
 """, unsafe_allow_html=True)
@@ -1018,10 +1069,10 @@ if st.session_state.active_page == "dashboard":
     r1_c1, r1_c2, r1_c3 = st.columns([1.2, 1.2, 1.6])
 
     with r1_c1:
-        st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Nominal Balance</span><span style='color: #64748B;'>💳</span></div><div class='card-val-lg'>{nominal_balance_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>↑ 1.18% weekly</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 25 Q 25 5, 50 18 T 100 8' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Nominal Revenue</span><span style='color: #64748B;'>📈</span></div><div class='card-val-lg'>{nominal_revenue_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>↑ 0.29% run-rate</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 20 Q 30 28, 60 10 T 100 5' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Warehouse Valuation</span><span style='color: #64748B;'>💳</span></div><div class='card-val-lg'>{nominal_balance_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>Asset Base</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 25 Q 25 5, 50 18 T 100 8' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Realized Revenue</span><span style='color: #64748B;'>📈</span></div><div class='card-val-lg'>{nominal_revenue_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>Sales Ledger</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 20 Q 30 28, 60 10 T 100 5' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
 
     with r1_c2:
-        st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Total Stock Volume</span><span style='color: #64748B;'>📦</span></div><div class='card-val-lg'>{total_stock:,} <span class='card-unit'>ITEMS</span></div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-cyan'>↑ 0.28% inventory</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 15 Q 35 2, 70 20 T 100 8' stroke='#00B2FF' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Replenishment Outlay</span><span style='color: #64748B;'>⚠️</span></div><div class='card-val-lg'>{replenish_outlay_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-red'>↓ 0.15% PO deficit</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 8 Q 30 22, 60 12 T 100 24' stroke='#FF4560' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Total Stock Volume</span><span style='color: #64748B;'>📦</span></div><div class='card-val-lg'>{total_stock:,} <span class='card-unit'>ITEMS</span></div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-cyan'>Live Physical Stock</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 15 Q 35 2, 70 20 T 100 8' stroke='#00B2FF' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Replenishment Outlay</span><span style='color: #64748B;'>⚠️</span></div><div class='card-val-lg'>{replenish_outlay_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-red'>{restock_needed} Lines Below ROP</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 8 Q 30 22, 60 12 T 100 24' stroke='#FF4560' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
 
     with r1_c3:
         st.markdown("<div class='dribbble-card' style='height: 100%;'><div class='card-header-flex'><span class='card-label'>Product Activity Distribution</span><span class='chip chip-cyan'>LIVE TELEMETRY</span></div>", unsafe_allow_html=True)
@@ -1055,20 +1106,27 @@ if st.session_state.active_page == "dashboard":
     r2_c1, r2_c2 = st.columns([1.6, 1.1])
 
     with r2_c1:
-        st.markdown("<div class='dribbble-card'><div class='card-header-flex'><div><span class='card-label'>Inventory & Inflow Velocity Drift</span><div style='font-size: 0.72rem; color: #64748B;'>Total unit transactions vs weekly baseline</div></div><div style='display: flex; gap: 12px; font-size: 0.75rem; font-weight: 600;'><span style='color: #00B2FF;'>● Total Throughput</span><span style='color: #FF4560;'>● Critical Restocks</span></div></div>", unsafe_allow_html=True)
+        st.markdown("<div class='dribbble-card'><div class='card-header-flex'><div><span class='card-label'>Weekly Sales Ledger Throughput</span><div style='font-size: 0.72rem; color: #64748B;'>Aggregated sales checkout volume across days of week</div></div><div style='display: flex; gap: 12px; font-size: 0.75rem; font-weight: 600;'><span style='color: #00B2FF;'>● Units Sold</span></div></div>", unsafe_allow_html=True)
 
         if PLOTLY_AVAILABLE:
-            days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            day_order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            if not df_sales.empty and "transaction_date" in df_sales.columns:
+                df_sales_chart = df_sales.copy()
+                df_sales_chart["dt"] = pd.to_datetime(df_sales_chart["transaction_date"], errors="coerce")
+                df_sales_chart["day"] = df_sales_chart["dt"].dt.strftime("%a")
+                sales_by_day = df_sales_chart.groupby("day")["quantity_sold"].sum().reindex(day_order).fillna(0)
+                days = list(sales_by_day.index)
+                throughput_data = [int(v) for v in sales_by_day.values]
+            else:
+                days = day_order
+                throughput_data = [0, 0, 0, 0, 0, 0, 0]
+
             fig_area = go.Figure()
             fig_area.add_trace(go.Scatter(
-                x=days, y=[310, 480, 520, 890, 740, 960, 680],
-                fill='tozeroy', mode='lines', line=dict(width=3, color='#00B2FF', shape='spline'),
-                fillcolor='rgba(0, 178, 255, 0.12)', name='Throughput'
-            ))
-            fig_area.add_trace(go.Scatter(
-                x=days, y=[25, 40, 35, 110, 80, 95, 45],
-                fill='tozeroy', mode='lines', line=dict(width=2, color='#FF4560', shape='spline'),
-                fillcolor='rgba(255, 69, 96, 0.08)', name='Restock Events'
+                x=days, y=throughput_data,
+                fill='tozeroy', mode='lines+markers', line=dict(width=3, color='#00B2FF', shape='spline'),
+                marker=dict(size=6, color='#00B2FF'),
+                fillcolor='rgba(0, 178, 255, 0.12)', name='Units Sold'
             ))
             fig_area.update_layout(
                 margin=dict(t=5, b=20, l=10, r=10),
