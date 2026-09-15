@@ -2,6 +2,7 @@ import os
 import re
 import math
 import json
+import base64
 import random
 import secrets
 import smtplib
@@ -40,7 +41,7 @@ except ImportError:
     OPENAI_AVAILABLE = False
 
 # ==========================================
-# PAGE CONFIGURATION & DATAOPS THEME
+# PAGE CONFIGURATION & BACKGROUND INJECTION
 # ==========================================
 st.set_page_config(
     page_title="inventro.ai | Autonomous Retail OS",
@@ -49,13 +50,43 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+def set_app_background(image_path: str = "background.png", dark_overlay: float = 0.75):
+    """
+    Encodes a local background image to base64 and applies it as a fixed full-screen
+    background with an adjustable dark overlay for high card contrast and readability.
+    """
+    if os.path.exists(image_path):
+        with open(image_path, "rb") as img_file:
+            b64_data = base64.b64encode(img_file.read()).decode("utf-8")
+        bg_style = f"""
+        [data-testid="stAppViewContainer"] {{
+            background: linear-gradient(
+                rgba(11, 12, 16, {dark_overlay}),
+                rgba(11, 12, 16, {dark_overlay})
+            ),
+            url("data:image/png;base64,{b64_data}") no-repeat center center fixed !important;
+            background-size: cover !important;
+        }}
+        [data-testid="stHeader"], .stApp {{
+            background: transparent !important;
+        }}
+        """
+    else:
+        bg_style = """
+        html, body, [class*="css"], .stApp {
+            background-color: #0B0C10 !important;
+        }
+        """
+    st.markdown(f"<style>{bg_style}</style>", unsafe_allow_html=True)
+
+set_app_background("background.png", dark_overlay=0.75)
+
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 html, body, [class*="css"], .stApp {
     font-family: 'Plus Jakarta Sans', sans-serif !important;
-    background-color: #0B0C10 !important;
     color: #F1F5F9 !important;
 }
 
@@ -64,8 +95,9 @@ code, pre, .stCode {
 }
 
 [data-testid="stSidebar"] {
-    background-color: #101218 !important;
+    background-color: rgba(16, 18, 24, 0.95) !important;
     border-right: 1px solid #1B1E28 !important;
+    backdrop-filter: blur(10px) !important;
 }
 [data-testid="stSidebar"] hr {
     border-color: #1B1E28 !important;
@@ -127,13 +159,14 @@ code, pre, .stCode {
 }
 
 .dribbble-card {
-    background: #141720;
+    background: rgba(20, 23, 32, 0.85);
     border: 1px solid #1E2330;
     border-radius: 16px;
     padding: 20px 22px;
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
     margin-bottom: 16px;
     position: relative;
+    backdrop-filter: blur(8px);
 }
 .dribbble-card:hover {
     border-color: #2D3446;
@@ -633,8 +666,8 @@ if not st.session_state.authenticated_user:
                                             st.success(f"OTP code successfully sent to `{recovery_email_input}`. Check your inbox.")
                                         else:
                                             st.error(status_msg)
-                                else:
-                                    st.error(otp_code)
+                                    else:
+                                        st.error(otp_code)
 
                                 entered_otp = st.text_input("Enter 6-Digit OTP from Email", key="otp_verify_box")
                                 if st.button("VERIFY OTP & SIGN IN", type="primary", use_container_width=True):
