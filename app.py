@@ -104,6 +104,31 @@ code, pre, .stCode {
 }
 
 /* ==========================================
+   KILL STREAMLIT DEFAULT TAB WRAPPER BAR
+   ========================================== */
+[data-baseweb="tab-list"] {
+    background-color: transparent !important;
+    border-bottom: 1px solid #1E2330 !important;
+    gap: 20px !important;
+    padding-left: 0px !important;
+}
+[data-baseweb="tab"] {
+    background-color: transparent !important;
+    border: none !important;
+    color: #8E9BAE !important;
+    font-weight: 700 !important;
+    font-size: 0.85rem !important;
+    padding: 8px 0px !important;
+}
+[aria-selected="true"] {
+    color: #00B2FF !important;
+    border-bottom: 2px solid #00B2FF !important;
+}
+[data-baseweb="tab-highlight"] {
+    background-color: #00B2FF !important;
+}
+
+/* ==========================================
    OPENING ENTRANCE & PULSE ANIMATIONS
    ========================================== */
 @keyframes gatewayEntrance {
