@@ -71,6 +71,61 @@ code, pre, .stCode {
     border-color: #1B1E28 !important;
 }
 
+/* ==========================================
+   OPENING ENTRANCE & PULSE ANIMATIONS
+   ========================================== */
+@keyframes gatewayEntrance {
+    0% {
+        opacity: 0;
+        transform: translateY(28px) scale(0.97);
+        filter: blur(6px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        filter: blur(0px);
+    }
+}
+
+@keyframes neonGlow {
+    0%, 100% {
+        text-shadow: 0 0 10px rgba(0, 178, 255, 0.3), 0 0 24px rgba(0, 178, 255, 0.15);
+    }
+    50% {
+        text-shadow: 0 0 18px rgba(0, 178, 255, 0.65), 0 0 38px rgba(0, 178, 255, 0.35);
+    }
+}
+
+@keyframes scanlineSweep {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(100%); }
+}
+
+.auth-header-anim {
+    animation: gatewayEntrance 0.85s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.auth-title-glow {
+    animation: neonGlow 3s ease-in-out infinite alternate;
+}
+
+.auth-card-anim {
+    animation: gatewayEntrance 1s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
+    position: relative;
+    overflow: hidden;
+}
+
+.auth-card-anim::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 200%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #00B2FF, transparent);
+    animation: scanlineSweep 4s linear infinite;
+}
+
 .dribbble-card {
     background: #141720;
     border: 1px solid #1E2330;
@@ -480,7 +535,7 @@ def save_user_credentials(user_id: int, dialect: str, host: str, port: str, dbna
         st.error(f"Failed to save credentials: {e}")
 
 # ==========================================
-# AUTHENTICATION GATEWAY
+# AUTHENTICATION GATEWAY WITH ANIMATION
 # ==========================================
 if "authenticated_user" not in st.session_state:
     st.session_state.authenticated_user = None
@@ -489,12 +544,22 @@ query_params = st.query_params
 active_reset_token = query_params.get("reset_token", None)
 
 if not st.session_state.authenticated_user:
-    st.markdown("<div style='text-align: center; padding: 50px 0 25px 0;'><h1 style='color: #00B2FF; font-weight: 800; letter-spacing: -0.03em;'>⚡ INVENTRO.AI</h1><p style='color: #8E9BAE; font-size: 1rem;'>Autonomous Retail Operating System & Machine Intelligence Control</p></div>", unsafe_allow_html=True)
+    st.markdown("""
+        <div class='auth-header-anim' style='text-align: center; padding: 50px 0 25px 0;'>
+            <h1 class='auth-title-glow' style='color: #00B2FF; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 6px;'>
+                ⚡ INVENTRO.AI
+            </h1>
+            <p style='color: #8E9BAE; font-size: 1rem; margin-top: 0;'>
+                Autonomous Retail Operating System & Machine Intelligence Control
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
     
     auth_col1, auth_col2, auth_col3 = st.columns([1, 1.25, 1])
     with auth_col2:
+        st.markdown("<div class='dribbble-card auth-card-anim'>", unsafe_allow_html=True)
+        
         if active_reset_token:
-            st.markdown("<div class='dribbble-card'>", unsafe_allow_html=True)
             st.markdown("##### 🔐 Set New Password")
             st.caption("Secure password reset link authenticated.")
             new_link_pw = st.text_input("New Password", type="password", key="new_link_pw")
@@ -515,132 +580,131 @@ if not st.session_state.authenticated_user:
                         st.rerun()
                     else:
                         st.error(msg)
-            st.markdown("</div>", unsafe_allow_html=True)
-            st.stop()
-
-        auth_tab_login, auth_tab_signup = st.tabs(["🔐 Sign In", "📝 Create Account"])
-        
-        with auth_tab_login:
-            st.markdown("##### Workspace Authentication")
-            login_email = st.text_input("Operator Identity", key="login_email")
-            login_pass = st.text_input("Password", type="password", key="login_pass")
+        else:
+            auth_tab_login, auth_tab_signup = st.tabs(["🔐 Sign In", "📝 Create Account"])
             
-            if st.button("INITIALIZE MISSION CONTROL", type="primary", use_container_width=True):
-                if login_email and login_pass:
-                    user_data = verify_user(login_email, login_pass)
-                    if user_data:
-                        st.session_state.authenticated_user = user_data
-                        st.toast(f"Operator Verified: {login_email}", icon="⚡")
-                        st.rerun()
-                    else:
-                        st.error("Authentication rejected: Invalid email or password.")
-                else:
-                    st.warning("Please provide operator email and password.")
-
-            with st.expander("Forgot password?"):
-                st.markdown("<p style='font-size: 0.8rem; font-weight: 600; color: #8E9BAE;'>Account Recovery Workflow:</p>", unsafe_allow_html=True)
+            with auth_tab_login:
+                st.markdown("##### Workspace Authentication")
+                login_email = st.text_input("Operator Identity", key="login_email")
+                login_pass = st.text_input("Password", type="password", key="login_pass")
                 
-                recovery_email_input = st.text_input("Enter Registered Email", key="recovery_email_step1", placeholder="operator@retail.com")
-
-                if recovery_email_input:
-                    user_check = fetch_user_by_email(recovery_email_input)
-                    if not user_check:
-                        st.error("No operator account found with this email address.")
-                    else:
-                        st.success("Email verified. Choose your recovery method below:")
-                        
-                        recovery_method = st.radio(
-                            "Select Recovery Action:",
-                            ["Option 1: Send OTP to Email (Direct Login)", "Option 2: Send Password Reset Link to Email"],
-                            key="recovery_method_choice"
-                        )
-
-                        if "Option 1" in recovery_method:
-                            if st.button("SEND OTP TO EMAIL", use_container_width=True):
-                                ok, otp_code = set_user_otp(recovery_email_input)
-                                if ok:
-                                    body = (
-                                        f"Operator Authentication Request\n\n"
-                                        f"Your one-time login passcode is: {otp_code}\n\n"
-                                        f"Enter this code on the workspace gateway to authenticate immediately.\n\n"
-                                        f"Security notice: This verification code expires in 10 minutes."
-                                    )
-                                    sent, status_msg = dispatch_platform_email(
-                                        recovery_email_input,
-                                        "inventro.ai • Security Access Verification Code",
-                                        body
-                                    )
-                                    if sent:
-                                        st.success(f"OTP code successfully sent to `{recovery_email_input}`. Check your inbox.")
-                                    else:
-                                        st.error(status_msg)
-                                else:
-                                    st.error(otp_code)
-
-                            entered_otp = st.text_input("Enter 6-Digit OTP from Email", key="otp_verify_box")
-                            if st.button("VERIFY OTP & SIGN IN", type="primary", use_container_width=True):
-                                if entered_otp:
-                                    try:
-                                        with get_vault_connection() as conn:
-                                            c = conn.cursor()
-                                            c.execute("SELECT reset_token FROM users WHERE email = ?", (recovery_email_input.strip().lower(),))
-                                            row = c.fetchone()
-                                            if row and row[0] and row[0].strip() == entered_otp.strip():
-                                                c.execute("UPDATE users SET reset_token = '' WHERE email = ?", (recovery_email_input.strip().lower(),))
-                                                conn.commit()
-                                                
-                                                st.session_state.authenticated_user = user_check
-                                                st.toast(f"Operator Authenticated: {recovery_email_input}", icon="⚡")
-                                                st.rerun()
-                                            else:
-                                                st.error("Authentication rejected: Invalid or expired OTP.")
-                                    except Exception as err:
-                                        st.error(f"Verification error: {err}")
-                                else:
-                                    st.warning("Please enter the 6-digit OTP received in your email.")
-
+                if st.button("INITIALIZE MISSION CONTROL", type="primary", use_container_width=True):
+                    if login_email and login_pass:
+                        user_data = verify_user(login_email, login_pass)
+                        if user_data:
+                            st.session_state.authenticated_user = user_data
+                            st.toast(f"Operator Verified: {login_email}", icon="⚡")
+                            st.rerun()
                         else:
-                            if st.button("SEND PASSWORD RESET LINK", use_container_width=True):
-                                ok, reset_token = generate_reset_token(recovery_email_input)
-                                if ok:
-                                    reset_url = f"https://inventro.streamlit.app/?reset_token={reset_token}"
-                                    body = (
-                                        f"Operator Password Recovery Request\n\n"
-                                        f"Click the link below to initialize a password reset for your operator vault:\n"
-                                        f"{reset_url}\n\n"
-                                        f"If you did not request this credential update, no action is required."
-                                    )
-                                    sent, status_msg = dispatch_platform_email(
-                                        recovery_email_input,
-                                        "inventro.ai • Secure Password Recovery Action",
-                                        body
-                                    )
-                                    if sent:
-                                        st.success(f"Password reset link successfully sent to `{recovery_email_input}`. Check your inbox.")
-                                    else:
-                                        st.error(status_msg)
-                                else:
-                                    st.error(reset_token)
-
-        with auth_tab_signup:
-            st.markdown("##### Create Operator Profile")
-            signup_email = st.text_input("Operator Email", key="signup_email")
-            signup_pass = st.text_input("Password", type="password", key="signup_pass")
-            signup_pass2 = st.text_input("Confirm Password", type="password", key="signup_pass2")
-            
-            if st.button("GENERATE SECURE VAULT", use_container_width=True):
-                if not signup_email or not signup_pass:
-                    st.warning("All credentials required.")
-                elif signup_pass != signup_pass2:
-                    st.error("Passwords do not match.")
-                elif len(signup_pass) < 6:
-                    st.error("Password must be at least 6 characters.")
-                else:
-                    success, msg = create_user_account(signup_email, signup_pass)
-                    if success:
-                        st.success("Operator registered. Log in to continue.")
+                            st.error("Authentication rejected: Invalid email or password.")
                     else:
-                        st.error(msg)
+                        st.warning("Please provide operator email and password.")
+
+                with st.expander("Forgot password?"):
+                    st.markdown("<p style='font-size: 0.8rem; font-weight: 600; color: #8E9BAE;'>Account Recovery Workflow:</p>", unsafe_allow_html=True)
+                    
+                    recovery_email_input = st.text_input("Enter Registered Email", key="recovery_email_step1", placeholder="operator@retail.com")
+
+                    if recovery_email_input:
+                        user_check = fetch_user_by_email(recovery_email_input)
+                        if not user_check:
+                            st.error("No operator account found with this email address.")
+                        else:
+                            st.success("Email verified. Choose your recovery method below:")
+                            
+                            recovery_method = st.radio(
+                                "Select Recovery Action:",
+                                ["Option 1: Send OTP to Email (Direct Login)", "Option 2: Send Password Reset Link to Email"],
+                                key="recovery_method_choice"
+                            )
+
+                            if "Option 1" in recovery_method:
+                                if st.button("SEND OTP TO EMAIL", use_container_width=True):
+                                    ok, otp_code = set_user_otp(recovery_email_input)
+                                    if ok:
+                                        body = (
+                                            f"Operator Authentication Request\n\n"
+                                            f"Your one-time login passcode is: {otp_code}\n\n"
+                                            f"Enter this code on the workspace gateway to authenticate immediately.\n\n"
+                                            f"Security notice: This verification code expires in 10 minutes."
+                                        )
+                                        sent, status_msg = dispatch_platform_email(
+                                            recovery_email_input,
+                                            "inventro.ai • Security Access Verification Code",
+                                            body
+                                        )
+                                        if sent:
+                                            st.success(f"OTP code successfully sent to `{recovery_email_input}`. Check your inbox.")
+                                        else:
+                                            st.error(status_msg)
+                                    else:
+                                        st.error(otp_code)
+
+                                entered_otp = st.text_input("Enter 6-Digit OTP from Email", key="otp_verify_box")
+                                if st.button("VERIFY OTP & SIGN IN", type="primary", use_container_width=True):
+                                    if entered_otp:
+                                        try:
+                                            with get_vault_connection() as conn:
+                                                c = conn.cursor()
+                                                c.execute("SELECT reset_token FROM users WHERE email = ?", (recovery_email_input.strip().lower(),))
+                                                row = c.fetchone()
+                                                if row and row[0] and row[0].strip() == entered_otp.strip():
+                                                    c.execute("UPDATE users SET reset_token = '' WHERE email = ?", (recovery_email_input.strip().lower(),))
+                                                    conn.commit()
+                                                    
+                                                    st.session_state.authenticated_user = user_check
+                                                    st.toast(f"Operator Authenticated: {recovery_email_input}", icon="⚡")
+                                                    st.rerun()
+                                                else:
+                                                    st.error("Authentication rejected: Invalid or expired OTP.")
+                                        except Exception as err:
+                                            st.error(f"Verification error: {err}")
+                                    else:
+                                        st.warning("Please enter the 6-digit OTP received in your email.")
+
+                            else:
+                                if st.button("SEND PASSWORD RESET LINK", use_container_width=True):
+                                    ok, reset_token = generate_reset_token(recovery_email_input)
+                                    if ok:
+                                        reset_url = f"https://inventro.streamlit.app/?reset_token={reset_token}"
+                                        body = (
+                                            f"Operator Password Recovery Request\n\n"
+                                            f"Click the link below to initialize a password reset for your operator vault:\n"
+                                            f"{reset_url}\n\n"
+                                            f"If you did not request this credential update, no action is required."
+                                        )
+                                        sent, status_msg = dispatch_platform_email(
+                                            recovery_email_input,
+                                            "inventro.ai • Secure Password Recovery Action",
+                                            body
+                                        )
+                                        if sent:
+                                            st.success(f"Password reset link successfully sent to `{recovery_email_input}`. Check your inbox.")
+                                        else:
+                                            st.error(status_msg)
+                                    else:
+                                        st.error(reset_token)
+
+            with auth_tab_signup:
+                st.markdown("##### Create Operator Profile")
+                signup_email = st.text_input("Operator Email", key="signup_email")
+                signup_pass = st.text_input("Password", type="password", key="signup_pass")
+                signup_pass2 = st.text_input("Confirm Password", type="password", key="signup_pass2")
+                
+                if st.button("GENERATE SECURE VAULT", use_container_width=True):
+                    if not signup_email or not signup_pass:
+                        st.warning("All credentials required.")
+                    elif signup_pass != signup_pass2:
+                        st.error("Passwords do not match.")
+                    elif len(signup_pass) < 6:
+                        st.error("Password must be at least 6 characters.")
+                    else:
+                        success, msg = create_user_account(signup_email, signup_pass)
+                        if success:
+                            st.success("Operator registered. Log in to continue.")
+                        else:
+                            st.error(msg)
+        st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
 current_user = st.session_state.authenticated_user
