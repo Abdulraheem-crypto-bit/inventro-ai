@@ -103,9 +103,16 @@ code, pre, .stCode {
     border-color: #1B1E28 !important;
 }
 
-/* ==========================================
-   KILL STREAMLIT DEFAULT TAB WRAPPER BAR
-   ========================================== */
+/* HIDE STREAMLIT TOP DECORATION / HEADER BARS */
+header[data-testid="stHeader"] {
+    background: transparent !important;
+    visibility: hidden !important;
+}
+.stApp > header {
+    background-color: transparent !important;
+}
+
+/* KILL STREAMLIT DEFAULT TAB WRAPPER BAR */
 [data-baseweb="tab-list"] {
     background-color: transparent !important;
     border-bottom: 1px solid #1E2330 !important;
