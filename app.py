@@ -104,48 +104,6 @@ code, pre, .stCode {
 }
 
 /* ==========================================
-   KILL STREAMLIT DECORATION & HEADER BARS
-   ========================================== */
-[data-testid="stDecoration"] {
-    display: none !important;
-}
-header[data-testid="stHeader"] {
-    background: transparent !important;
-    visibility: hidden !important;
-}
-.stApp > header {
-    background-color: transparent !important;
-}
-
-/* KILL STREAMLIT TAB CONTAINER BAR */
-div[data-baseweb="tab-list"] {
-    background-color: transparent !important;
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-    padding: 0 !important;
-    margin-bottom: 15px !important;
-    gap: 20px !important;
-}
-div[data-baseweb="tab"] {
-    background-color: transparent !important;
-    background: transparent !important;
-    border: none !important;
-    color: #8E9BAE !important;
-    font-weight: 700 !important;
-    font-size: 0.85rem !important;
-    padding: 8px 0px !important;
-}
-div[aria-selected="true"] {
-    background-color: transparent !important;
-    color: #00B2FF !important;
-    border-bottom: 2px solid #00B2FF !important;
-}
-div[data-baseweb="tab-highlight"] {
-    background-color: #00B2FF !important;
-}
-
-/* ==========================================
    OPENING ENTRANCE & PULSE ANIMATIONS
    ========================================== */
 @keyframes gatewayEntrance {
