@@ -347,10 +347,7 @@ def fetch_user_by_email(email: str):
 # CENTRALIZED AUTONOMOUS DISPATCH RELAY
 # ==========================================
 def dispatch_platform_email(recipient: str, subject: str, body: str) -> tuple[bool, str]:
-    """
-    Autonomous platform-level mailer that sends OTPs and reset links
-    to ANY user without displaying codes or links on the screen.
-    """
+    """Autonomous platform-level mailer that sends OTPs and reset links to user email."""
     smtp_srv = st.secrets.get("SYSTEM_SMTP_SERVER", os.environ.get("SYSTEM_SMTP_SERVER", ""))
     smtp_prt = st.secrets.get("SYSTEM_SMTP_PORT", os.environ.get("SYSTEM_SMTP_PORT", 587))
     smtp_snd = st.secrets.get("SYSTEM_SMTP_SENDER", os.environ.get("SYSTEM_SMTP_SENDER", ""))
@@ -503,96 +500,92 @@ if not st.session_state.authenticated_user:
                     st.warning("Please provide operator email and password.")
 
             with st.expander("Forgot password?"):
-                st.markdown("<p style='font-size: 0.8rem; font-weight: 600; color: #8E9BAE;'>Select recovery path:</p>", unsafe_allow_html=True)
-                recovery_choice = st.radio(
-                    "Recovery Mode:",
-                    ["Option 1: Send OTP to registered email", "Option 2: Reset password via email link"],
-                    label_visibility="collapsed",
-                    key="recovery_choice"
-                )
+                st.markdown("<p style='font-size: 0.8rem; font-weight: 600; color: #8E9BAE;'>Account Recovery Workflow:</p>", unsafe_allow_html=True)
+                
+                # Step 1: Ask for registered email first
+                recovery_email_input = st.text_input("Enter Registered Email", key="recovery_email_step1", placeholder="operator@retail.com")
 
-                reg_email = st.text_input("Registered Email Address", key="reg_email_field", placeholder="operator@retail.com")
+                if recovery_email_input:
+                    user_check = fetch_user_by_email(recovery_email_input)
+                    if not user_check:
+                        st.error("No operator account found with this email address.")
+                    else:
+                        st.success("Email verified. Choose your recovery method below:")
+                        
+                        # Step 2: Choose recovery method
+                        recovery_method = st.radio(
+                            "Select Recovery Action:",
+                            ["Option 1: Send OTP to Email (Direct Login)", "Option 2: Send Password Reset Link to Email"],
+                            key="recovery_method_choice"
+                        )
 
-                if recovery_choice == "Option 1: Send OTP to registered email":
-                    st.caption("A 6-digit access OTP will be dispatched exclusively to your registered inbox.")
-                    
-                    if st.button("DISPATCH LOGIN OTP", use_container_width=True):
-                        if reg_email:
-                            with st.spinner("Transmitting encrypted code to inbox..."):
-                                ok, otp_or_msg = set_user_otp(reg_email)
+                        if "Option 1" in recovery_method:
+                            if st.button("SEND OTP TO EMAIL", use_container_width=True):
+                                ok, otp_code = set_user_otp(recovery_email_input)
                                 if ok:
                                     body = (
                                         f"INVENTRO.AI LOGIN OTP\n\n"
-                                        f"Your one-time login passcode is: {otp_or_msg}\n\n"
-                                        f"Enter this code on the login page to immediately authenticate into your workspace.\n"
+                                        f"Your one-time login passcode is: {otp_code}\n\n"
+                                        f"Enter this code on the login page to authenticate into your workspace.\n"
                                         f"If you did not request this, please ignore this email."
                                     )
                                     sent, status_msg = dispatch_platform_email(
-                                        reg_email,
+                                        recovery_email_input,
                                         "inventro.ai • One-Time Access Verification Code",
                                         body
                                     )
                                     if sent:
-                                        st.success(f"Security code sent to `{reg_email}`. Please check your inbox.")
+                                        st.success(f"OTP code successfully sent to `{recovery_email_input}`. Check your inbox.")
                                     else:
                                         st.error(status_msg)
                                 else:
-                                    st.error(otp_or_msg)
-                        else:
-                            st.warning("Please enter your registered email address.")
+                                    st.error(otp_code)
 
-                    otp_input = st.text_input("Enter 6-Digit OTP from Email", key="login_otp_input")
-                    if st.button("VERIFY OTP & LOG IN", type="primary", use_container_width=True):
-                        if not reg_email or not otp_input:
-                            st.warning("Both registered email and OTP are required.")
-                        else:
-                            try:
-                                with get_vault_connection() as conn:
-                                    c = conn.cursor()
-                                    c.execute("SELECT reset_token FROM users WHERE email = ?", (reg_email.strip().lower(),))
-                                    row = c.fetchone()
-                                    if row and row[0] and row[0].strip() == otp_input.strip():
-                                        c.execute("UPDATE users SET reset_token = '' WHERE email = ?", (reg_email.strip().lower(),))
-                                        conn.commit()
-                                        
-                                        u_data = fetch_user_by_email(reg_email)
-                                        if u_data:
-                                            st.session_state.authenticated_user = u_data
-                                            st.toast(f"Operator Authenticated: {reg_email}", icon="⚡")
-                                            st.rerun()
-                                    else:
-                                        st.error("Authentication rejected: Invalid or incorrect OTP.")
-                            except Exception as err:
-                                st.error(f"Vault verification error: {err}")
+                            # Input field to verify the received OTP
+                            entered_otp = st.text_input("Enter 6-Digit OTP from Email", key="otp_verify_box")
+                            if st.button("VERIFY OTP & SIGN IN", type="primary", use_container_width=True):
+                                if entered_otp:
+                                    try:
+                                        with get_vault_connection() as conn:
+                                            c = conn.cursor()
+                                            c.execute("SELECT reset_token FROM users WHERE email = ?", (recovery_email_input.strip().lower(),))
+                                            row = c.fetchone()
+                                            if row and row[0] and row[0].strip() == entered_otp.strip():
+                                                c.execute("UPDATE users SET reset_token = '' WHERE email = ?", (recovery_email_input.strip().lower(),))
+                                                conn.commit()
+                                                
+                                                st.session_state.authenticated_user = user_check
+                                                st.toast(f"Operator Authenticated: {recovery_email_input}", icon="⚡")
+                                                st.rerun()
+                                            else:
+                                                st.error("Authentication rejected: Invalid or expired OTP.")
+                                    except Exception as err:
+                                        st.error(f"Verification error: {err}")
+                                else:
+                                    st.warning("Please enter the 6-digit OTP received in your email.")
 
-                elif recovery_choice == "Option 2: Reset password via email link":
-                    st.caption("A secure tokenized URL will be sent to your email to reset your password.")
-                    
-                    if st.button("SEND PASSWORD RESET LINK", use_container_width=True):
-                        if reg_email:
-                            with st.spinner("Generating secure token and transmitting..."):
-                                ok, token_or_msg = generate_reset_token(reg_email)
+                        else:
+                            if st.button("SEND PASSWORD RESET LINK", use_container_width=True):
+                                ok, reset_token = generate_reset_token(recovery_email_input)
                                 if ok:
-                                    reset_url = f"https://inventro.streamlit.app/?reset_token={token_or_msg}"
+                                    reset_url = f"https://inventro.streamlit.app/?reset_token={reset_token}"
                                     body = (
                                         f"INVENTRO.AI PASSWORD RESET\n\n"
-                                        f"Click the link below to set a new password for your account:\n"
+                                        f"Click the secure link below to set a new password for your account:\n"
                                         f"{reset_url}\n\n"
                                         f"If you did not request a password reset, please ignore this email."
                                     )
                                     sent, status_msg = dispatch_platform_email(
-                                        reg_email,
+                                        recovery_email_input,
                                         "inventro.ai • Secure Password Reset Link",
                                         body
                                     )
                                     if sent:
-                                        st.success(f"Password reset link sent to `{reg_email}`. Check your inbox.")
+                                        st.success(f"Password reset link successfully sent to `{recovery_email_input}`. Check your inbox.")
                                     else:
                                         st.error(status_msg)
                                 else:
-                                    st.error(token_or_msg)
-                        else:
-                            st.warning("Please enter your registered email address.")
+                                    st.error(reset_token)
 
         with auth_tab_signup:
             st.markdown("##### Create Operator Profile")
