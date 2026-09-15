@@ -103,7 +103,12 @@ code, pre, .stCode {
     border-color: #1B1E28 !important;
 }
 
-/* HIDE STREAMLIT TOP DECORATION / HEADER BARS */
+/* ==========================================
+   KILL STREAMLIT DECORATION BAR & HEADER BARS
+   ========================================== */
+[data-testid="stDecoration"] {
+    display: none !important;
+}
 header[data-testid="stHeader"] {
     background: transparent !important;
     visibility: hidden !important;
@@ -112,9 +117,7 @@ header[data-testid="stHeader"] {
     background-color: transparent !important;
 }
 
-/* ==========================================
-   KILL STREAMLIT TAB CONTAINER BAR COMPLETELY
-   ========================================== */
+/* KILL STREAMLIT TAB CONTAINER BAR */
 div[data-baseweb="tab-list"] {
     background-color: transparent !important;
     background: transparent !important;
