@@ -580,11 +580,11 @@ active_reset_token = query_params.get("reset_token", None)
 
 if not st.session_state.authenticated_user:
     st.markdown("""
-        <div class='auth-header-anim' style='text-align: center; padding: 50px 0 25px 0;'>
+        <div class='auth-header-anim' style='text-align: center; padding: 40px 0 20px 0;'>
             <h1 class='auth-title-glow' style='color: #00B2FF; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 6px;'>
                 ⚡ INVENTRO.AI
             </h1>
-            <p style='color: #8E9BAE; font-size: 1rem; margin-top: 0;'>
+            <p style='color: #8E9BAE; font-size: 0.95rem; margin-top: 0;'>
                 Autonomous Retail Operating System & Machine Intelligence Control
             </p>
         </div>
@@ -739,6 +739,17 @@ if not st.session_state.authenticated_user:
                             st.success("Operator registered. Log in to continue.")
                         else:
                             st.error(msg)
+                            
+        # --- LOGIN CARD WATERMARK ---
+        st.markdown("""
+            <div style='margin-top: 15px; padding-top: 10px; border-top: 1px solid #1E2330; text-align: center;'>
+                <p style='font-size: 0.72rem; color: #64748B; margin: 0;'>Designed & Built by</p>
+                <a href='https://github.com/Abdulraheem-crypto-bit' target='_blank' style='font-size: 0.8rem; font-weight: 700; color: #00B2FF; text-decoration: none; display: inline-block; margin-top: 2px;'>
+                    Abdul Raheem ⚡
+                </a>
+            </div>
+        """, unsafe_allow_html=True)
+
         st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
@@ -942,7 +953,7 @@ with st.sidebar:
         st.session_state.authenticated_user = None
         st.rerun()
 
-    # --- DESIGNED BY WATERMARK REDIRECT ---
+    # --- SIDEBAR WATERMARK REDIRECT ---
     st.markdown("""
         <div style='margin-top: 25px; padding-top: 10px; border-top: 1px solid #1E2330; text-align: center;'>
             <p style='font-size: 0.72rem; color: #64748B; margin: 0;'>Designed & Built by</p>
