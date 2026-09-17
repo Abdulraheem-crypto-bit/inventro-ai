@@ -941,6 +941,8 @@ with st.sidebar:
 # ==========================================
 raw_products, raw_sales, raw_movements = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 non_inventory_warning = False
+detected_product_table = "None"
+detected_sales_table = "None"
 
 if is_connected:
     try:
@@ -959,12 +961,14 @@ if is_connected:
                         break
 
             if prod_target:
+                detected_product_table = prod_target
                 raw_products = pd.read_sql(text(f"SELECT * FROM {prod_target}"), conn)
             elif len(tables) > 0:
                 non_inventory_warning = True
 
             sales_target = next((t for t in tables if any(k in t.lower() for k in ["sales_ledger", "sales", "order", "txn"])), None)
             if sales_target:
+                detected_sales_table = sales_target
                 raw_sales = pd.read_sql(text(f"SELECT * FROM {sales_target} ORDER BY 1 DESC LIMIT 2000"), conn)
 
             move_target = next((t for t in tables if any(k in t.lower() for k in ["stock_movements", "movement", "audit", "log"])), None)
@@ -1141,12 +1145,12 @@ st.markdown(f"""
         <div style='display: flex; align-items: center; gap: 12px;'>
             <span style='font-size: 1.4rem; font-weight: 800; color: #FFFFFF;'>⚡ inventro.ai • {active_page_label}</span>
             <span style='color: #4B5563;'>•</span>
-            <span class='chip chip-cyan'>FLEET ONLINE</span>
+            <span class='chip chip-cyan'>DB TABLE: {detected_product_table}</span>
             <span class='chip chip-green'>CURRENCY: {c_code} ({c_sym.strip()})</span>
         </div>
         <div style='display: flex; align-items: center; gap: 8px;'>
             <span style='background: #141720; border: 1px solid #1E2330; padding: 6px 12px; border-radius: 20px; font-size: 0.75rem; color: #94A3B8;'>Connected: <b style='color:#00E396;'>Postgres</b></span>
-            <span style='background: #141720; border: 1px solid #1E2330; padding: 6px 12px; border-radius: 20px; font-size: 0.75rem; color: #00B2FF;'>SLA: <b style='color:#00B2FF;'>99.98%</b></span>
+            <span style='background: #141720; border: 1px solid #1E2330; padding: 6px 12px; border-radius: 20px; font-size: 0.75rem; color: #00B2FF;'>Rows: <b style='color:#00B2FF;'>{len(df_products)}</b></span>
         </div>
     </div>
 """, unsafe_allow_html=True)
@@ -1160,13 +1164,20 @@ if st.session_state.active_page == "dashboard":
     if non_inventory_warning:
         st.warning("⚠️ Connected database contains tables, but none match a predictive retail inventory schema (e.g., employee or payroll records detected). Only stock datasets are ingested into predictive analytics.")
 
+    # Live Database Telemetry Banner
+    st.markdown(f"""
+        <div style='background: rgba(0, 178, 255, 0.08); border: 1px solid rgba(0, 178, 255, 0.25); border-radius: 12px; padding: 12px 18px; margin-bottom: 20px; font-size: 0.82rem; color: #94A3B8;'>
+            🔍 <b style='color: #00B2FF;'>Live Database Telemetry Inspector:</b> Connected to Postgres Engine. Products table: <b style='color:#FFF;'>{detected_product_table}</b> ({len(df_products)} rows loaded). Sales ledger table: <b style='color:#FFF;'>{detected_sales_table}</b> ({len(df_sales)} rows loaded). All metrics below are calculated directly from your SQL database rows.
+        </div>
+    """, unsafe_allow_html=True)
+
     r1_c1, r1_c2, r1_c3 = st.columns([1.2, 1.2, 1.6])
 
     with r1_c1:
-        st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Warehouse Valuation</span><span style='color: #64748B;'>💳</span></div><div class='card-val-lg'>{nominal_balance_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>Asset Base</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 25 Q 25 5, 50 18 T 100 8' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Realized Revenue</span><span style='color: #64748B;'>📈</span></div><div class='card-val-lg'>{nominal_revenue_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>Sales Ledger</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 20 Q 30 28, 60 10 T 100 5' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Warehouse Valuation</span><span style='color: #64748B;'>💳</span></div><div class='card-val-lg'>{nominal_balance_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>Sum(Stock × Price)</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 25 Q 25 5, 50 18 T 100 8' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Realized Revenue</span><span style='color: #64748B;'>📈</span></div><div class='card-val-lg'>{nominal_revenue_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-green'>Sales Ledger Total</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 20 Q 30 28, 60 10 T 100 5' stroke='#00E396' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
 
     with r1_c2:
-        st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Total Stock Volume</span><span style='color: #64748B;'>📦</span></div><div class='card-val-lg'>{total_stock:,} <span class='card-unit'>ITEMS</span></div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-cyan'>Live Physical Stock</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 15 Q 35 2, 70 20 T 100 8' stroke='#00B2FF' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Replenishment Outlay</span><span style='color: #64748B;'>⚠️</span></div><div class='card-val-lg'>{replenish_outlay_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-red'>{restock_needed} Lines Below ROP</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 8 Q 30 22, 60 12 T 100 24' stroke='#FF4560' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Total Stock Volume</span><span style='color: #64748B;'>📦</span></div><div class='card-val-lg'>{total_stock:,} <span class='card-unit'>ITEMS</span></div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-cyan'>Sum(Stock) from DB</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 15 Q 35 2, 70 20 T 100 8' stroke='#00B2FF' stroke-width='3' fill='none'/></svg></div></div><div class='dribbble-card'><div class='card-header-flex'><span class='card-label'>Replenishment Outlay</span><span style='color: #64748B;'>⚠️</span></div><div class='card-val-lg'>{replenish_outlay_val}</div><div style='display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px;'><span class='chip chip-red'>{restock_needed} SKUs Below ROP</span><svg width='75' height='24' viewBox='0 0 100 30' fill='none'><path d='M0 8 Q 30 22, 60 12 T 100 24' stroke='#FF4560' stroke-width='3' fill='none'/></svg></div></div>", unsafe_allow_html=True)
 
     with r1_c3:
         st.markdown("<div class='dribbble-card' style='height: 100%;'><div class='card-header-flex'><span class='card-label'>Product Activity Distribution</span><span class='chip chip-cyan'>LIVE TELEMETRY</span></div>", unsafe_allow_html=True)
