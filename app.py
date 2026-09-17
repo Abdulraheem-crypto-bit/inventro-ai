@@ -942,6 +942,16 @@ with st.sidebar:
         st.session_state.authenticated_user = None
         st.rerun()
 
+    # --- DESIGNED BY WATERMARK REDIRECT ---
+    st.markdown("""
+        <div style='margin-top: 25px; padding-top: 10px; border-top: 1px solid #1E2330; text-align: center;'>
+            <p style='font-size: 0.72rem; color: #64748B; margin: 0;'>Designed & Built by</p>
+            <a href='https://github.com/Abdulraheem-crypto-bit' target='_blank' style='font-size: 0.8rem; font-weight: 700; color: #00B2FF; text-decoration: none; display: inline-block; margin-top: 2px;'>
+                Abdul Raheem ⚡
+            </a>
+        </div>
+    """, unsafe_allow_html=True)
+
 # ==========================================
 # INGESTION & DATA RESOLUTION WITH VALIDATION
 # ==========================================
