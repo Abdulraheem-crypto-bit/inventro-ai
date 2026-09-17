@@ -103,6 +103,12 @@ code, pre, .stCode {
     border-color: #1B1E28 !important;
 }
 
+/* HIDE STREAMLIT CLOUD TOOLBAR, GITHUB BADGES & FOOTER */
+[data-testid="stToolbar"], [data-testid="stDecoration"], footer, .viewerBadge_container__1QSob {
+    display: none !important;
+    visibility: hidden !important;
+}
+
 /* ==========================================
    OPENING ENTRANCE & PULSE ANIMATIONS
    ========================================== */
