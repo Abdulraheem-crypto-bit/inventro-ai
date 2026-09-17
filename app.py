@@ -8,7 +8,7 @@ import secrets
 import smtplib
 import sqlite3
 import hashlib
-from datetime import datetime, date, timedelta
+from datetime import datetime
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from email.utils import make_msgid, formatdate
 from email.mime.text import MIMEText
@@ -23,7 +23,722 @@ from sqlalchemy.exc import SQLAlchemyError
 # Plotly with Defensive Fallback
 try:
     import plotly.graph_objects as go
-    import plotly.express as px
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+
+# OpenAI SDK & Exception Handling
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
+# ==========================================
+# PAGE CONFIGURATION & CACHED BACKGROUND
+# ==========================================
+st.set_page_config(
+    page_title="inventro.ai | Autonomous Retail OS",
+    page_icon="⚡",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+@st.cache_data(show_spinner=False)
+def get_cached_background(image_path: str = "background.png", dark_overlay: float = 0.75):
+    if os.path.exists(image_path):
+        with open(image_path, "rb") as img_file:
+            b64_data = base64.b64encode(img_file.read()).decode("utf-8")
+        return f"""
+        [data-testid="stAppViewContainer"] {{
+            background: linear-gradient(rgba(11, 12, 16, {dark_overlay}), rgba(11, 12, 16, {dark_overlay})),
+            url("data:image/png;base64,{b64_data}") no-repeat center center fixed !important;
+            background-size: cover !important;
+        }}
+        [data-testid="stHeader"], .stApp {{ background: transparent !important; }}
+        """
+    return "html, body, .stApp { background-color: #0B0C10 !important; }"
+
+st.markdown(f"<style>{get_cached_background()}</style>", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+html, body, [class*="css"], .stApp {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    color: #F1F5F9 !important;
+}
+code, pre, .stCode {
+    font-family: 'JetBrains Mono', monospace !important;
+}
+[data-testid="stSidebar"] {
+    background-color: rgba(16, 18, 24, 0.95) !important;
+    border-right: 1px solid #1B1E28 !important;
+    backdrop-filter: blur(10px) !important;
+}
+[data-testid="stToolbar"], [data-testid="stDecoration"], footer, .viewerBadge_container__1QSob {
+    display: none !important;
+    visibility: hidden !important;
+}
+.dribbble-card {
+    background: rgba(20, 23, 32, 0.88);
+    border: 1px solid #1E2330;
+    border-radius: 16px;
+    padding: 20px 22px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+    margin-bottom: 16px;
+    backdrop-filter: blur(8px);
+}
+.dribbble-card:hover {
+    border-color: #2D3446;
+}
+.card-header-flex {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.card-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #8E9BAE;
+}
+.card-val-lg {
+    font-size: 1.85rem;
+    font-weight: 800;
+    color: #FFFFFF;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: -0.02em;
+}
+.chip {
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.chip-green { background: rgba(0, 227, 150, 0.12); color: #00E396; border: 1px solid rgba(0, 227, 150, 0.3); }
+.chip-red { background: rgba(255, 69, 96, 0.12); color: #FF4560; border: 1px solid rgba(255, 69, 96, 0.3); }
+.chip-cyan { background: rgba(0, 178, 255, 0.12); color: #00B2FF; border: 1px solid rgba(0, 178, 255, 0.3); }
+.chip-amber { background: rgba(254, 176, 25, 0.12); color: #FEB019; border: 1px solid rgba(254, 176, 25, 0.3); }
+.risk-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    margin-top: 6px;
+}
+.risk-table th {
+    color: #64748B;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid #1E2330;
+}
+.risk-table td {
+    padding: 10px 10px;
+    border-bottom: 1px solid #171A24;
+    color: #E2E8F0;
+    font-weight: 500;
+}
+.stButton > button {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    font-size: 0.82rem !important;
+    font-weight: 700 !important;
+    border-radius: 10px !important;
+    border: 1px solid #282E3E !important;
+    background: #191D28 !important;
+    color: #F1F5F9 !important;
+}
+.stButton > button[kind="primary"] {
+    background: #0284C7 !important;
+    border-color: #00B2FF !important;
+    color: #FFFFFF !important;
+}
+input, select, textarea, [data-baseweb="select"] {
+    background-color: #141720 !important;
+    border-color: #1E2330 !important;
+    color: #F1F5F9 !important;
+    border-radius: 10px !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ==========================================
+# CURRENCY PROFILES
+# ==========================================
+CURRENCY_PROFILES = {
+    "INR": {"symbol": "₹", "code": "INR", "label": "India (INR - ₹)"},
+    "USD": {"symbol": "$", "code": "USD", "label": "United States (USD - $)"},
+    "AED": {"symbol": "AED ", "code": "AED", "label": "UAE / Dubai (AED - د.إ)"},
+    "EUR": {"symbol": "€", "code": "EUR", "label": "European Union (EUR - €)"},
+    "GBP": {"symbol": "£", "code": "GBP", "label": "United Kingdom (GBP - £)"}
+}
+
+# ==========================================
+# SQLITE VAULT SETUP (CACHED)
+# ==========================================
+VAULT_DB = "users_vault.db"
+
+@st.cache_resource(show_spinner=False)
+def get_vault_conn():
+    conn = sqlite3.connect(VAULT_DB, timeout=10.0, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    return conn
+
+def init_db():
+    try:
+        with get_vault_conn() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    db_uri TEXT DEFAULT '',
+                    currency_code TEXT DEFAULT 'INR',
+                    currency_symbol TEXT DEFAULT '₹'
+                )
+            """)
+            conn.commit()
+    except Exception:
+        pass
+
+init_db()
+
+def hash_pw(password: str) -> str:
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
+def verify_user(email: str, password: str):
+    try:
+        with get_vault_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id, email, db_uri, currency_code, currency_symbol FROM users WHERE email = ? AND password_hash = ?", (email.strip().lower(), hash_pw(password)))
+            row = cur.fetchone()
+            if row:
+                return {"id": row[0], "email": row[1], "db_uri": row[2] or "", "currency_code": row[3] or "INR", "currency_symbol": row[4] or "₹"}
+    except Exception:
+        return None
+    return None
+
+def create_user_account(email: str, password: str):
+    try:
+        with get_vault_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("INSERT INTO users (email, password_hash) VALUES (?, ?)", (email.strip().lower(), hash_pw(password)))
+            conn.commit()
+            return True, "Account created successfully!"
+    except sqlite3.IntegrityError:
+        return False, "Email already exists."
+    except Exception as e:
+        return False, str(e)
+
+# ==========================================
+# AUTHENTICATION GATEWAY
+# ==========================================
+if "authenticated_user" not in st.session_state:
+    st.session_state.authenticated_user = None
+
+if not st.session_state.authenticated_user:
+    st.markdown("<h1 style='text-align: center; color: #00B2FF; margin-top: 30px;'>⚡ INVENTRO.AI</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #8E9BAE; font-size: 0.9rem;'>Autonomous Retail Operating System</p>", unsafe_allow_html=True)
+    
+    _, col2, _ = st.columns([1, 1.2, 1])
+    with col2:
+        st.markdown("<div class='dribbble-card'>", unsafe_allow_html=True)
+        tab_login, tab_signup = st.tabs(["🔐 Sign In", "📝 Create Account"])
+        
+        with tab_login:
+            with st.form("login_form"):
+                em = st.text_input("Operator Identity (Email)")
+                pw = st.text_input("Password", type="password")
+                submitted = st.form_submit_button("INITIALIZE MISSION CONTROL", type="primary", use_container_width=True)
+                
+                if submitted:
+                    if em and pw:
+                        u = verify_user(em, pw)
+                        if u:
+                            st.session_state.authenticated_user = u
+                            st.rerun()
+                        else:
+                            st.error("Invalid email or password.")
+                    else:
+                        st.warning("Please fill in all fields.")
+                        
+        with tab_signup:
+            with st.form("signup_form"):
+                rem = st.text_input("New Email")
+                rpw = st.text_input("New Password", type="password")
+                r_submitted = st.form_submit_button("GENERATE SECURE VAULT", use_container_width=True)
+                
+                if r_submitted:
+                    if rem and rpw:
+                        ok, msg = create_user_account(rem, rpw)
+                        if ok:
+                            st.success(msg)
+                        else:
+                            st.error(msg)
+                    else:
+                        st.warning("Please fill in all fields.")
+
+        st.markdown("""
+            <div style='margin-top: 15px; padding-top: 10px; border-top: 1px solid #1E2330; text-align: center;'>
+                <p style='font-size: 0.72rem; color: #64748B; margin: 0;'>Designed & Built by</p>
+                <a href='https://github.com/Abdulraheem-crypto-bit' target='_blank' style='font-size: 0.8rem; font-weight: 700; color: #00B2FF; text-decoration: none;'>Abdul Raheem ⚡</a>
+            </div>
+        """, unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    st.stop()
+
+current_user = st.session_state.authenticated_user
+user_curr_code = current_user.get("currency_code", "INR")
+active_currency = CURRENCY_PROFILES.get(user_curr_code, CURRENCY_PROFILES["INR"])
+c_sym = active_currency["symbol"]
+c_code = active_currency["code"]
+
+def format_currency(amount: float) -> str:
+    return f"{c_sym}{amount:,.2f}"
+
+if "active_page" not in st.session_state:
+    st.session_state.active_page = "dashboard"
+
+# ==========================================
+# SCHEMA RESOLUTION & INGESTION
+# ==========================================
+COLUMN_SYNONYMS = {
+    "sku": ["sku", "product_id", "productid", "item_id", "itemid", "item_code", "itemcode", "barcode", "code", "id"],
+    "name": ["name", "product_name", "productname", "item_name", "itemname", "title", "description", "product"],
+    "category": ["category", "cat", "department", "dept", "product_type", "type", "group"],
+    "stock": ["stock", "current_stock", "qty", "quantity", "inventory", "on_hand", "stock_qty"],
+    "lead_time": ["lead_time", "leadtime", "lead_days", "delivery_days", "transit_time"],
+    "moq": ["moq", "min_order_qty", "min_order", "minimum_order"],
+    "pack_size": ["pack_size", "packsize", "case_size", "bundle_size"],
+    "vendor": ["vendor", "supplier", "vendor_name", "supplier_name"],
+    "email": ["email", "vendor_email", "supplier_email", "contact_email"],
+    "expiry_days": ["expiry_days", "shelf_life", "expiry", "expiration_days"],
+    "price": ["price", "unit_price", "cost", "mrp", "retail_price"],
+    "quantity_sold": ["quantity_sold", "qty_sold", "units_sold", "sales", "volume"],
+    "transaction_date": ["transaction_date", "timestamp", "date", "sale_date", "txn_date"]
+}
+
+def clean_str(s: str) -> str:
+    return re.sub(r'[\s_\-]+', '', str(s)).lower()
+
+def clean_numeric_series(series: pd.Series, default_val=0) -> pd.Series:
+    if series is None or series.empty:
+        return pd.Series(default_val, dtype=float)
+    cleaned = series.astype(str).str.replace(r"[^\d.-]", "", regex=True).replace("", np.nan)
+    return pd.to_numeric(cleaned, errors="coerce").fillna(default_val)
+
+def resolve_and_normalize(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    if df.empty:
+        return df, {}
+    normalized_df = df.copy()
+    detected_mapping = {}
+    cleaned_df_cols = {clean_str(c): c for c in df.columns}
+
+    for canonical_key, synonyms in COLUMN_SYNONYMS.items():
+        for syn in synonyms:
+            if clean_str(syn) in cleaned_df_cols:
+                original_col = cleaned_df_cols[clean_str(syn)]
+                detected_mapping[canonical_key] = original_col
+                normalized_df[canonical_key] = df[original_col]
+                break
+
+    for col, def_val in {"stock": 0, "lead_time": 2, "moq": 1, "pack_size": 1, "expiry_days": 30, "price": 100.0, "quantity_sold": 1}.items():
+        if col in normalized_df.columns:
+            normalized_df[col] = clean_numeric_series(normalized_df[col], def_val)
+        else:
+            normalized_df[col] = def_val
+
+    for col, def_val in {"sku": [f"SKU_{i+1:03d}" for i in range(len(normalized_df))], "name": "Item", "category": "General", "vendor": "Unassigned", "email": ""}.items():
+        if col not in normalized_df.columns:
+            normalized_df[col] = def_val
+        else:
+            normalized_df[col] = normalized_df[col].fillna(def_val if isinstance(def_val, str) else "Item")
+
+    return normalized_df, detected_mapping
+
+@st.cache_resource(show_spinner=False)
+def get_db_engine(connection_string: str):
+    if not connection_string or not connection_string.strip():
+        return None
+    clean_uri = connection_string.strip()
+    if clean_uri.startswith("postgres://"):
+        clean_uri = clean_uri.replace("postgres://", "postgresql://", 1)
+    try:
+        parsed = urlparse(clean_uri)
+        query_params = parse_qs(parsed.query)
+        if "postgresql" in parsed.scheme:
+            query_params["sslmode"] = ["require"]
+        new_query = urlencode(query_params, doseq=True)
+        sanitized_uri = urlunparse(parsed._replace(query=new_query))
+        
+        engine = create_engine(sanitized_uri, pool_pre_ping=True, pool_recycle=300, connect_args={"connect_timeout": 10})
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return engine
+    except Exception:
+        return None
+
+final_connection_uri = current_user.get("db_uri", "")
+engine = get_db_engine(final_connection_uri) if final_connection_uri else None
+is_connected = engine is not None
+
+# ==========================================
+# SIDEBAR NAVIGATION
+# ==========================================
+with st.sidebar:
+    st.markdown("""
+        <div style='display: flex; align-items: center; gap: 10px; margin-bottom: 12px;'>
+            <div style='width: 36px; height: 36px; border-radius: 10px; background: #00B2FF; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem; color: #FFF;'>⚡</div>
+            <div>
+                <div style='font-weight: 700; font-size: 0.95rem; color: #FFF;'>inventro.ai</div>
+                <div style='font-size: 0.72rem; color: #64748B;'>Autonomous Retail OS</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown(f"""
+        <div style='background: #141720; border: 1px solid #1E2330; border-radius: 10px; padding: 10px 12px; margin-bottom: 14px;'>
+            <div style='font-size: 0.68rem; color: #64748B; text-transform: uppercase;'>Signed-In Operator</div>
+            <div style='font-size: 0.82rem; font-weight: 700; color: #F1F5F9; word-break: break-all;'>{current_user.get('email', '')}</div>
+            <div style='margin-top: 6px;'><span class='chip chip-green'>REGION: {c_code} ({c_sym.strip()})</span></div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<p style='font-size: 0.7rem; font-weight: 800; color: #8E9BAE; letter-spacing: 0.08em; margin-bottom: 6px;'>NAVIGATION</p>", unsafe_allow_html=True)
+
+    PAGES_LIST = [
+        ("📊 Dashboard Overview", "dashboard"),
+        ("🤖 AI Copilot Agent", "ai_copilot"),
+        ("📋 Recent Transactions", "recent_tx"),
+        ("🔬 Data Report (EDA)", "eda_report"),
+        ("📦 Inventory Catalog", "catalog"),
+        ("🛡️ Risk & Governance", "risk_gov"),
+        ("⚡ POS Scan & Intake", "pos_scan"),
+        ("✉️ PO Dispatch", "po_dispatch"),
+        ("🔌 DB Terminal", "db_terminal"),
+        ("💬 Help & Support", "support"),
+        ("👤 Profile & Vault", "profile")
+    ]
+
+    for label, page_id in PAGES_LIST:
+        is_active = (st.session_state.active_page == page_id)
+        if st.button(label, key=f"side_nav_{page_id}", type="primary" if is_active else "secondary", use_container_width=True):
+            st.session_state.active_page = page_id
+            st.rerun()
+
+    st.divider()
+    if is_connected:
+        st.markdown("<span class='chip chip-green' style='width: 100%; justify-content: center; margin-bottom: 8px;'>PIPELINE: ONLINE</span>", unsafe_allow_html=True)
+    else:
+        st.markdown("<span class='chip chip-amber' style='width: 100%; justify-content: center; margin-bottom: 8px;'>PIPELINE: OFFLINE</span>", unsafe_allow_html=True)
+
+    if st.button("TERMINATE SESSION", use_container_width=True):
+        st.session_state.authenticated_user = None
+        st.rerun()
+
+    st.markdown("""
+        <div style='margin-top: 25px; padding-top: 10px; border-top: 1px solid #1E2330; text-align: center;'>
+            <p style='font-size: 0.72rem; color: #64748B; margin: 0;'>Designed & Built by</p>
+            <a href='https://github.com/Abdulraheem-crypto-bit' target='_blank' style='font-size: 0.8rem; font-weight: 700; color: #00B2FF; text-decoration: none; display: inline-block; margin-top: 2px;'>
+                Abdul Raheem ⚡
+            </a>
+        </div>
+    """, unsafe_allow_html=True)
+
+# ==========================================
+# INGESTION FROM POSTGRES
+# ==========================================
+raw_products, raw_sales, raw_movements = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+detected_product_table = "None"
+detected_sales_table = "None"
+
+if is_connected:
+    try:
+        with engine.connect() as conn:
+            inspector = inspect(engine)
+            tables = inspector.get_table_names()
+            prod_target = next((t for t in tables if t.lower() in ["products_master", "products", "inventory", "items"]), None)
+            if prod_target:
+                detected_product_table = prod_target
+                raw_products = pd.read_sql(text(f"SELECT * FROM {prod_target}"), conn)
+
+            sales_target = next((t for t in tables if any(k in t.lower() for k in ["sales_ledger", "sales", "order", "txn"])), None)
+            if sales_target:
+                detected_sales_table = sales_target
+                raw_sales = pd.read_sql(text(f"SELECT * FROM {sales_target} ORDER BY 1 DESC LIMIT 2000"), conn)
+
+            move_target = next((t for t in tables if any(k in t.lower() for k in ["stock_movements", "movement", "audit"])), None)
+            if move_target:
+                raw_movements = pd.read_sql(text(f"SELECT * FROM {move_target} ORDER BY 1 DESC LIMIT 50"), conn)
+    except Exception:
+        pass
+
+df_products, prod_map = resolve_and_normalize(raw_products)
+df_sales, sales_map = resolve_and_normalize(raw_sales)
+
+def compute_analytics(products_df: pd.DataFrame, sales_df: pd.DataFrame) -> pd.DataFrame:
+    if products_df.empty:
+        return pd.DataFrame()
+    matrix = products_df.copy()
+    if not sales_df.empty and "sku" in sales_df.columns and "quantity_sold" in sales_df.columns:
+        velocity_stats = sales_df.groupby("sku")["quantity_sold"].agg(
+            daily_velocity="mean",
+            daily_volatility=lambda x: float(x.std(ddof=1)) if len(x) > 1 else 0.5,
+            total_sold="sum"
+        ).reset_index()
+        matrix = matrix.merge(velocity_stats, on="sku", how="left")
+    else:
+        matrix["daily_velocity"] = 1.0
+        matrix["daily_volatility"] = 0.5
+        matrix["total_sold"] = 0
+
+    matrix["daily_velocity"] = matrix["daily_velocity"].fillna(1.0).clip(lower=0.1)
+    matrix["daily_volatility"] = matrix["daily_volatility"].fillna(0.5).clip(lower=0.1)
+    matrix["total_sold"] = matrix["total_sold"].fillna(0)
+    
+    Z = 1.65
+    matrix["safety_stock"] = np.ceil(Z * matrix["daily_volatility"] * np.sqrt(matrix["lead_time"].astype(float))).astype(int)
+    matrix["rop"] = np.ceil((matrix["daily_velocity"] * matrix["lead_time"].astype(float)) + matrix["safety_stock"]).astype(int)
+    matrix["reorder_status"] = np.where(matrix["stock"] <= matrix["rop"], "RESTOCK NEEDED", "HEALTHY")
+    matrix["expiry_risk"] = np.where(matrix["expiry_days"] <= 7, "HIGH EXPIRY RISK", "STABLE")
+
+    matrix = matrix.sort_values(by="total_sold", ascending=False)
+    cum_sales = matrix["total_sold"].cumsum()
+    total_sales_sum = matrix["total_sold"].sum() or 1.0
+    matrix["cum_share"] = cum_sales / total_sales_sum
+    matrix["abc_class"] = np.where(matrix["cum_share"] <= 0.80, "A", np.where(matrix["cum_share"] <= 0.95, "B", "C"))
+
+    def calc_po(row):
+        if row["reorder_status"] == "RESTOCK NEEDED" or row["expiry_risk"] == "HIGH EXPIRY RISK":
+            deficit = max(0, (2 * row["rop"]) - row["stock"])
+            pack_mult = max(1, int(row.get("pack_size", 1)))
+            batch = math.ceil(deficit / pack_mult) * pack_mult
+            return max(int(row.get("moq", 1)), batch)
+        return 0
+
+    matrix["suggested_po_qty"] = matrix.apply(calc_po, axis=1)
+    return matrix
+
+analytics_df = compute_analytics(df_products, df_sales)
+
+# ==========================================
+# HEADER BAR
+# ==========================================
+active_page_label = next((label for label, pid in PAGES_LIST if pid == st.session_state.active_page), "Console")
+st.markdown(f"""
+    <div style='display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;'>
+        <div style='display: flex; align-items: center; gap: 12px;'>
+            <span style='font-size: 1.4rem; font-weight: 800; color: #FFFFFF;'>⚡ inventro.ai • {active_page_label}</span>
+            <span style='color: #4B5563;'>•</span>
+            <span class='chip chip-cyan'>TABLE: {detected_product_table}</span>
+            <span class='chip chip-green'>CURRENCY: {c_code} ({c_sym.strip()})</span>
+        </div>
+    </div>
+""", unsafe_allow_html=True)
+
+# ==========================================
+# MODULE ROUTING
+# ==========================================
+
+# 1. DASHBOARD OVERVIEW WITH INTERACTIVE FILTERS
+if st.session_state.active_page == "dashboard":
+    
+    # --- INTERACTIVE DASHBOARD FILTERS CONTAINER ---
+    st.markdown("<div class='dribbble-card' style='padding: 15px 20px; margin-bottom: 20px;'>", unsafe_allow_html=True)
+    f_col1, f_col2, f_col3 = st.columns([1.5, 1.5, 1])
+    
+    with f_col1:
+        all_categories = ["All Categories"] + sorted(analytics_df["category"].unique().tolist()) if not analytics_df.empty else ["All Categories"]
+        selected_category = st.selectbox("Filter by Department / Category", all_categories)
+        
+    with f_col2:
+        status_options = ["All Statuses", "HEALTHY", "RESTOCK NEEDED"]
+        selected_status = st.selectbox("Filter by Stock Status", status_options)
+        
+    with f_col3:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        reset_filters = st.button("RESET FILTERS", use_container_width=True)
+        
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # Apply Filters to Analytics DataFrame
+    filtered_analytics = analytics_df.copy()
+    if selected_category != "All Categories":
+        filtered_analytics = filtered_analytics[filtered_analytics["category"] == selected_category]
+    if selected_status != "All Statuses":
+        filtered_analytics = filtered_analytics[filtered_analytics["reorder_status"] == selected_status]
+
+    # Dynamically Calculated Filtered Metrics
+    total_stock = int(filtered_analytics['stock'].sum()) if not filtered_analytics.empty else 0
+    restock_needed = int((filtered_analytics['reorder_status'] == 'RESTOCK NEEDED').sum()) if not filtered_analytics.empty else 0
+    healthy_units = int((filtered_analytics['reorder_status'] == 'HEALTHY').sum()) if not filtered_analytics.empty else 0
+    perish_alert = int((filtered_analytics['expiry_risk'] == 'HIGH EXPIRY RISK').sum()) if not filtered_analytics.empty else 0
+
+    inventory_valuation = float((filtered_analytics['stock'] * filtered_analytics['price']).sum()) if not filtered_analytics.empty else 0.0
+    nominal_balance_val = format_currency(inventory_valuation)
+
+    if not df_sales.empty and "quantity_sold" in df_sales.columns and "price" in df_sales.columns:
+        real_revenue = float((df_sales["quantity_sold"] * df_sales["price"]).sum())
+    else:
+        real_revenue = 0.0
+    nominal_revenue_val = format_currency(real_revenue)
+
+    real_po_outlay = float((filtered_analytics['suggested_po_qty'] * filtered_analytics['price']).sum()) if not filtered_analytics.empty else 0.0
+    replenish_outlay_val = format_currency(real_po_outlay)
+
+    # Dashboard Cards
+    r1_c1, r1_c2, r1_c3 = st.columns([1.2, 1.2, 1.6])
+
+    with r1_c1:
+        st.markdown(f"""
+            <div class='dribbble-card'>
+                <div class='card-header-flex'><span class='card-label'>Warehouse Valuation</span><span style='color: #64748B;'>💳</span></div>
+                <div class='card-val-lg'>{nominal_balance_val}</div>
+                <div style='margin-top: 10px;'><span class='chip chip-green'>Filtered Asset Base</span></div>
+            </div>
+            <div class='dribbble-card'>
+                <div class='card-header-flex'><span class='card-label'>Realized Revenue</span><span style='color: #64748B;'>📈</span></div>
+                <div class='card-val-lg'>{nominal_revenue_val}</div>
+                <div style='margin-top: 10px;'><span class='chip chip-green'>Sales Ledger Total</span></div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with r1_c2:
+        st.markdown(f"""
+            <div class='dribbble-card'>
+                <div class='card-header-flex'><span class='card-label'>Total Stock Volume</span><span style='color: #64748B;'>📦</span></div>
+                <div class='card-val-lg'>{total_stock:,} <span class='card-unit'>UNITS</span></div>
+                <div style='margin-top: 10px;'><span class='chip chip-cyan'>Filtered Volume</span></div>
+            </div>
+            <div class='dribbble-card'>
+                <div class='card-header-flex'><span class='card-label'>Replenishment Outlay</span><span style='color: #64748B;'>⚠️</span></div>
+                <div class='card-val-lg'>{replenish_outlay_val}</div>
+                <div style='margin-top: 10px;'><span class='chip chip-red'>{restock_needed} Filtered SKUs Below ROP</span></div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with r1_c3:
+        st.markdown("<div class='dribbble-card' style='height: 100%;'><div class='card-header-flex'><span class='card-label'>Product Activity Distribution</span><span class='chip chip-cyan'>FILTERED VIEW</span></div>", unsafe_allow_html=True)
+        if PLOTLY_AVAILABLE:
+            fig_donut = go.Figure(data=[go.Pie(
+                labels=["Healthy Units", "Restock Needed", "Class-A Items", "Expiry Risk"],
+                values=[healthy_units or 1, restock_needed or 1, max(1, int(len(filtered_analytics)*0.2)), perish_alert or 1],
+                hole=0.72,
+                marker=dict(colors=["#00B2FF", "#FEB019", "#00E396", "#FF4560"]),
+                hoverinfo="label+value",
+                textinfo="none"
+            )])
+            fig_donut.update_layout(
+                showlegend=False,
+                margin=dict(t=5, b=5, l=5, r=5),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                height=205,
+                annotations=[dict(
+                    text=f"<b>{total_stock:,}</b><br><span style='font-size:11px;color:#8E9BAE;'>Filtered Units</span>",
+                    x=0.5, y=0.5, font_size=18, font_color="#FFFFFF", showarrow=False
+                )]
+            )
+            st.plotly_chart(fig_donut, use_container_width=True, config={"displayModeBar": False})
+        st.markdown(f"<div style='display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.76rem; font-weight: 600; padding-top: 4px;'><div><span style='color:#00B2FF;'>●</span> Healthy: <b style='color:#FFF;'>{healthy_units}</b></div><div><span style='color:#FEB019;'>●</span> Restock: <b style='color:#FFF;'>{restock_needed}</b></div><div><span style='color:#00E396;'>●</span> Class-A: <b style='color:#FFF;'>{int(len(filtered_analytics)*0.2)}</b></div><div><span style='color:#FF4560;'>●</span> Spoilage: <b style='color:#FFF;'>{perish_alert}</b></div></div></div>", unsafe_allow_html=True)
+
+# 2. AI COPILOT
+elif st.session_state.active_page == "ai_copilot":
+    st.markdown("##### **🤖 Autonomous AI Supply Agent & Copilot**")
+    if analytics_df.empty:
+        st.warning("Telemetry idle: Connect your database pipeline or provision baseline tables in the DB Terminal.")
+    else:
+        if "chat_messages" not in st.session_state:
+            st.session_state.chat_messages = [{"role": "assistant", "content": f"Connected to `{detected_product_table}`. Ask me anything about stockout risks or inventory valuation."}]
+        for msg in st.session_state.chat_messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+        if user_prompt := st.chat_input("Ask about stock levels or replenishment..."):
+            st.session_state.chat_messages.append({"role": "user", "content": user_prompt})
+            with st.chat_message("user"):
+                st.markdown(user_prompt)
+            with st.chat_message("assistant"):
+                st.markdown(f"Analyzed {len(analytics_df)} SKUs. {restock_needed} items require restock under current parameters.")
+
+# Other modules fallback
+elif st.session_state.active_page == "recent_tx":
+    st.markdown("##### **📋 Recent Fleet Movements & Ledger Events**")
+    st.dataframe(raw_movements.head(20) if not raw_movements.empty else analytics_df.head(20), use_container_width=True, hide_index=True)
+
+elif st.session_state.active_page == "eda_report":
+    st.markdown("##### **🔬 14-Point Automated Statistical EDA Telemetry**")
+    st.dataframe(df_products.describe().T, use_container_width=True)
+
+elif st.session_state.active_page == "catalog":
+    st.markdown("##### **📦 Real-Time Catalog & ABC-XYZ Pareto Matrix**")
+    st.dataframe(analytics_df[["sku", "name", "category", "stock", "price", "rop", "reorder_status", "abc_class", "vendor"]], use_container_width=True, hide_index=True) if not analytics_df.empty else st.info("Catalog empty.")
+
+elif st.session_state.active_page == "risk_gov":
+    st.markdown("##### **🛡️ Autonomous Risk & Compliance Radar**")
+    st.dataframe(analytics_df[analytics_df["stock"] <= analytics_df["rop"]][["sku", "name", "stock", "rop", "vendor"]], use_container_width=True, hide_index=True) if not analytics_df.empty else st.info("No risks found.")
+
+elif st.session_state.active_page == "pos_scan":
+    st.markdown("##### **⚡ Point-of-Sale Checkout & Receiving Terminal**")
+    st.info("POS Terminal Ready.")
+
+elif st.session_state.active_page == "po_dispatch":
+    st.markdown("##### **✉️ Autonomous Purchase Order Dispatch Center**")
+    st.dataframe(analytics_df[analytics_df["suggested_po_qty"] > 0][["sku", "name", "stock", "suggested_po_qty", "vendor"]], use_container_width=True, hide_index=True) if not analytics_df.empty else st.success("All systems optimal.")
+
+elif st.session_state.active_page == "db_terminal":
+    st.markdown("##### **🔌 Relational Schema Provisioning & Direct SQL Terminal**")
+    sql_in = st.text_area("SQL Query", placeholder="SELECT * FROM products_master LIMIT 5;")
+    if st.button("RUN QUERY") and is_connected:
+        with engine.connect() as conn:
+            st.dataframe(pd.read_sql(text(sql_in), conn), use_container_width=True)
+
+elif st.session_state.active_page == "support":
+    st.markdown("##### **💬 Operator Help Desk & System Support**")
+    with st.form("support_form"):
+        st.text_input("Subject")
+        st.text_area("Details")
+        if st.form_submit_button("SUBMIT TICKET", type="primary"):
+            st.success("Ticket submitted.")
+
+elif st.session_state.active_page == "profile":
+    st.markdown("##### **👤 Operator Profile & Encrypted Vault**")
+    new_uri = st.text_input("Database URI", value=current_user.get("db_uri", ""), type="password")
+    if st.button("SAVE PROFILE", type="primary"):
+        save_user_credentials(current_user["id"], "PostgreSQL / Neon", "", "5432", "", "", "", new_uri, user_curr_code, c_sym)
+        st.toast("Profile saved successfully!", icon="💾")
+import os
+import re
+import math
+import json
+import base64
+import random
+import secrets
+import smtplib
+import sqlite3
+import hashlib
+from datetime import datetime
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from email.utils import make_msgid, formatdate
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+from sqlalchemy import create_engine, text, inspect
+from sqlalchemy.exc import SQLAlchemyError
+
+# Plotly with Defensive Fallback
+try:
+    import plotly.graph_objects as go
     PLOTLY_AVAILABLE = True
 except ImportError:
     PLOTLY_AVAILABLE = False
@@ -525,7 +1240,7 @@ if not st.session_state.authenticated_user:
             new_link_pw = st.text_input("New Password", type="password", key="new_link_pw")
             confirm_link_pw = st.text_input("Confirm New Password", type="password", key="confirm_link_pw")
 
-            if st.button("UPDATE PASSWORD & PROCEED TO LOGIN", key="btn_update_pw", type="primary", use_container_width=True):
+            if st.button("UPDATE PASSWORD & PROCEED TO LOGIN", type="primary", use_container_width=True):
                 if not new_link_pw or not confirm_link_pw:
                     st.warning("All fields are required.")
                 elif new_link_pw != confirm_link_pw:
@@ -548,7 +1263,7 @@ if not st.session_state.authenticated_user:
                 login_email = st.text_input("Operator Identity", key="login_email")
                 login_pass = st.text_input("Password", type="password", key="login_pass")
                 
-                if st.button("INITIALIZE MISSION CONTROL", key="btn_login", type="primary", use_container_width=True):
+                if st.button("INITIALIZE MISSION CONTROL", type="primary", use_container_width=True):
                     if login_email and login_pass:
                         user_data = verify_user(login_email, login_pass)
                         if user_data:
@@ -577,7 +1292,7 @@ if not st.session_state.authenticated_user:
                             )
 
                             if "Option 1" in recovery_method:
-                                if st.button("SEND OTP TO EMAIL", key="btn_send_otp", use_container_width=True):
+                                if st.button("SEND OTP TO EMAIL", use_container_width=True):
                                     ok, otp_code = set_user_otp(recovery_email_input)
                                     if ok:
                                         body = f"Operator Authentication Request\n\nYour one-time login passcode is: {otp_code}\n\nSecurity notice: This verification code expires in 10 minutes."
@@ -590,7 +1305,7 @@ if not st.session_state.authenticated_user:
                                         st.error(otp_code)
 
                                 entered_otp = st.text_input("Enter 6-Digit OTP from Email", key="otp_verify_box")
-                                if st.button("VERIFY OTP & SIGN IN", key="btn_verify_otp", type="primary", use_container_width=True):
+                                if st.button("VERIFY OTP & SIGN IN", type="primary", use_container_width=True):
                                     if entered_otp:
                                         try:
                                             with get_vault_conn() as conn:
@@ -610,7 +1325,7 @@ if not st.session_state.authenticated_user:
                                         st.warning("Please enter the 6-digit OTP.")
 
                             else:
-                                if st.button("SEND PASSWORD RESET LINK", key="btn_send_reset_link", use_container_width=True):
+                                if st.button("SEND PASSWORD RESET LINK", use_container_width=True):
                                     ok, reset_token = generate_reset_token(recovery_email_input)
                                     if ok:
                                         reset_url = f"https://inventro.streamlit.app/?reset_token={reset_token}"
@@ -629,7 +1344,7 @@ if not st.session_state.authenticated_user:
                 signup_pass = st.text_input("Password", type="password", key="signup_pass")
                 signup_pass2 = st.text_input("Confirm Password", type="password", key="signup_pass2")
                 
-                if st.button("GENERATE SECURE VAULT", key="btn_signup", use_container_width=True):
+                if st.button("GENERATE SECURE VAULT", use_container_width=True):
                     if not signup_email or not signup_pass:
                         st.warning("All credentials required.")
                     elif signup_pass != signup_pass2:
@@ -826,7 +1541,7 @@ with st.sidebar:
     else:
         st.markdown("<span class='chip chip-amber' style='width: 100%; justify-content: center; margin-bottom: 8px;'>PIPELINE: STANDBY / OFFLINE</span>", unsafe_allow_html=True)
 
-    if st.button("TERMINATE SESSION", key="term_session_btn", use_container_width=True):
+    if st.button("TERMINATE SESSION", use_container_width=True):
         st.session_state.authenticated_user = None
         st.rerun()
 
@@ -1012,22 +1727,26 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# FULL 11-MODULE ROUTER
+# FULL MODULE ROUTER (11 PAGES)
 # ==========================================
 
 # 1. DASHBOARD OVERVIEW WITH FILTERS
 if st.session_state.active_page == "dashboard":
+    if non_inventory_warning:
+        st.warning("⚠️ Connected database contains tables, but none match a predictive retail inventory schema.")
+
+    # Interactive Dashboard Filters
     st.markdown("<div class='dribbble-card' style='padding: 15px 20px; margin-bottom: 20px;'>", unsafe_allow_html=True)
     f_col1, f_col2, f_col3 = st.columns([1.5, 1.5, 1])
     with f_col1:
         all_categories = ["All Categories"] + sorted(analytics_df["category"].unique().tolist()) if not analytics_df.empty else ["All Categories"]
-        selected_category = st.selectbox("Filter by Department / Category", all_categories, key="dash_cat_filter")
+        selected_category = st.selectbox("Filter by Department / Category", all_categories)
     with f_col2:
         status_options = ["All Statuses", "HEALTHY", "RESTOCK NEEDED"]
-        selected_status = st.selectbox("Filter by Stock Status", status_options, key="dash_status_filter")
+        selected_status = st.selectbox("Filter by Stock Status", status_options)
     with f_col3:
         st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-        if st.button("REFRESH TELEMETRY", key="dash_refresh_btn", use_container_width=True):
+        if st.button("REFRESH TELEMETRY", use_container_width=True):
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1121,7 +1840,7 @@ if st.session_state.active_page == "dashboard":
             st.markdown(f"<table class='risk-table'><tr><th>DEPT</th><th>LOW</th><th>MED</th><th>HIGH</th></tr>{table_rows}</table>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-# 2. AI COPILOT AGENT
+# 2. AI COPILOT
 elif st.session_state.active_page == "ai_copilot":
     st.markdown("##### **🤖 Autonomous AI Supply Agent & Copilot**")
     if analytics_df.empty:
@@ -1144,13 +1863,7 @@ elif st.session_state.active_page == "ai_copilot":
 # 3. RECENT TRANSACTIONS
 elif st.session_state.active_page == "recent_tx":
     st.markdown("##### **📋 Recent Fleet Movements & Ledger Events**")
-    if not raw_movements.empty:
-        st.dataframe(raw_movements.head(20), use_container_width=True, hide_index=True)
-    elif not analytics_df.empty:
-        display_cols = ["sku", "name", "category", "stock", "lead_time", "rop", "days_runway", "reorder_status", "abc_class", "suggested_po_qty", "vendor"]
-        st.dataframe(analytics_df[[c for c in display_cols if c in analytics_df.columns]].head(20), use_container_width=True, hide_index=True)
-    else:
-        st.info("No transaction records detected.")
+    st.dataframe(raw_movements.head(20) if not raw_movements.empty else analytics_df.head(20), use_container_width=True, hide_index=True)
 
 # 4. DATA REPORT (EDA)
 elif st.session_state.active_page == "eda_report":
@@ -1163,32 +1876,17 @@ elif st.session_state.active_page == "eda_report":
         eda_c2.metric("Ledger Records", eda_results["overview"]["sales_ledger_rows"])
         eda_c3.metric("Stock Outliers", eda_results["outliers"]["stock_outliers"])
         eda_c4.metric("Cells Scanned", f"{eda_results['overview']['total_cells_scanned']:,}")
-        st.divider()
         st.dataframe(pd.DataFrame(eda_results["numerical_stats"]).T.reset_index(), use_container_width=True, hide_index=True)
 
 # 5. INVENTORY CATALOG
 elif st.session_state.active_page == "catalog":
     st.markdown("##### **📦 Real-Time Catalog & ABC-XYZ Pareto Matrix**")
-    if not analytics_df.empty:
-        q = st.text_input("Filter Catalog by Name, SKU, or Department:", placeholder="Search items...", key="catalog_search_input")
-        f_df = analytics_df
-        if q:
-            f_df = f_df[f_df["name"].str.contains(q, case=False, na=False) | f_df["sku"].str.contains(q, case=False, na=False)]
-        st.dataframe(f_df[["sku", "name", "category", "stock", "price", "rop", "reorder_status", "abc_class", "vendor"]], use_container_width=True, hide_index=True)
-    else:
-        st.info("Catalog empty.")
+    st.dataframe(analytics_df[["sku", "name", "category", "stock", "price", "rop", "reorder_status", "abc_class", "vendor"]], use_container_width=True, hide_index=True) if not analytics_df.empty else st.info("Catalog empty.")
 
 # 6. RISK & GOVERNANCE
 elif st.session_state.active_page == "risk_gov":
     st.markdown("##### **🛡️ Autonomous Risk & Compliance Radar**")
-    col_g1, col_g2, col_g3, col_g4 = st.columns(4)
-    col_g1.metric("Compliance Rating", "98/100")
-    col_g2.metric("Stockout Hazards", restock_needed)
-    col_g3.metric("Shelf-Life Decay", perish_alert)
-    col_g4.metric("Vendor Reliability", "96.5%")
-    st.divider()
-    if not analytics_df.empty:
-        st.dataframe(analytics_df[analytics_df["stock"] <= analytics_df["rop"]][["sku", "name", "stock", "rop", "vendor"]], use_container_width=True, hide_index=True)
+    st.dataframe(analytics_df[analytics_df["stock"] <= analytics_df["rop"]][["sku", "name", "stock", "rop", "vendor"]], use_container_width=True, hide_index=True) if not analytics_df.empty else st.info("No risks found.")
 
 # 7. POS SCAN & INTAKE
 elif st.session_state.active_page == "pos_scan":
@@ -1196,10 +1894,10 @@ elif st.session_state.active_page == "pos_scan":
     if not analytics_df.empty:
         p_col1, p_col2 = st.columns([1, 1.4])
         with p_col1:
-            selected_sku = st.selectbox("Select SKU / Barcode", analytics_df["sku"].tolist(), key="pos_sku_select")
-            action = st.radio("Operation:", ["📥 Stock IN", "⚡ POS Checkout", "📤 Stock OUT"], horizontal=True, key="pos_action_radio")
-            units = st.number_input("Units", min_value=1, value=1, key="pos_units_input")
-            if st.button("COMMIT TRANSACTION", key="pos_commit_btn", type="primary", use_container_width=True):
+            selected_sku = st.selectbox("Select SKU", analytics_df["sku"].tolist())
+            action = st.radio("Operation:", ["📥 Stock IN", "⚡ POS Checkout", "📤 Stock OUT"], horizontal=True)
+            units = st.number_input("Units", min_value=1, value=1)
+            if st.button("COMMIT TRANSACTION", type="primary", use_container_width=True):
                 st.toast(f"Committed {units}x units on {selected_sku}", icon="⚡")
                 st.rerun()
         with p_col2:
@@ -1212,19 +1910,13 @@ elif st.session_state.active_page == "pos_scan":
 # 8. PO DISPATCH
 elif st.session_state.active_page == "po_dispatch":
     st.markdown("##### **✉️ Autonomous Purchase Order Dispatch Center**")
-    po_items = analytics_df[analytics_df["suggested_po_qty"] > 0] if not analytics_df.empty else pd.DataFrame()
-    if po_items.empty:
-        st.success("All inventory lines operating within safety parameters.")
-    else:
-        st.dataframe(po_items[["sku", "name", "stock", "suggested_po_qty", "vendor"]], use_container_width=True, hide_index=True)
-        if st.button("TRANSMIT RESTOCK POs", key="btn_transmit_pos", type="primary"):
-            st.success("Purchase orders successfully dispatched to vendor emails.")
+    st.dataframe(analytics_df[analytics_df["suggested_po_qty"] > 0][["sku", "name", "stock", "suggested_po_qty", "vendor"]], use_container_width=True, hide_index=True) if not analytics_df.empty else st.success("All systems optimal.")
 
 # 9. DB TERMINAL
 elif st.session_state.active_page == "db_terminal":
     st.markdown("##### **🔌 Relational Schema Provisioning & Direct SQL Terminal**")
-    sql_in = st.text_area("SQL Statement", placeholder="SELECT * FROM products_master LIMIT 5;", key="db_sql_input")
-    if st.button("RUN QUERY", key="db_run_query_btn") and is_connected:
+    sql_in = st.text_area("SQL Query", placeholder="SELECT * FROM products_master LIMIT 5;")
+    if st.button("RUN QUERY") and is_connected:
         with engine.connect() as conn:
             st.dataframe(pd.read_sql(text(sql_in), conn), use_container_width=True)
 
@@ -1232,16 +1924,16 @@ elif st.session_state.active_page == "db_terminal":
 elif st.session_state.active_page == "support":
     st.markdown("##### **💬 Operator Help Desk & System Support**")
     with st.form("support_form"):
-        st.text_input("Subject", key="sup_sub")
-        st.text_area("Details", key="sup_det")
+        st.text_input("Subject")
+        st.text_area("Details")
         if st.form_submit_button("SUBMIT TICKET", type="primary"):
-            st.success("Ticket submitted successfully.")
+            st.success("Ticket submitted.")
 
 # 11. PROFILE & VAULT
 elif st.session_state.active_page == "profile":
     st.markdown("##### **👤 Operator Profile & Encrypted Vault**")
-    new_uri = st.text_input("Database URI", value=current_user.get("db_uri", ""), type="password", key="prof_db_uri_input")
-    if st.button("SAVE PROFILE", key="prof_save_btn", type="primary"):
+    new_uri = st.text_input("Database URI", value=current_user.get("db_uri", ""), type="password")
+    if st.button("SAVE PROFILE", type="primary"):
         save_user_credentials(current_user["id"], "PostgreSQL / Neon", "", "5432", "", "", "", new_uri, user_curr_code, c_sym)
         st.toast("Profile saved successfully!", icon="💾")
         st.rerun()
