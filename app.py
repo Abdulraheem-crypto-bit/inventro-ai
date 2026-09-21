@@ -471,13 +471,18 @@ def forget_user(user_id: int):
 # ==========================================
 # ANTI-SPAM OPTIMIZED AUTONOMOUS RELAY
 # ==========================================
-def dispatch_platform_email(recipient: str, subject: str, body_text: str) -> tuple[bool, str]:
+def dispatch_platform_email(recipient: str, subject: str, body_text: str, sender_config: dict | None = None) -> tuple[bool, str]:
     smtp_srv = st.secrets.get("SYSTEM_SMTP_SERVER", os.environ.get("SYSTEM_SMTP_SERVER", ""))
     smtp_prt = st.secrets.get("SYSTEM_SMTP_PORT", os.environ.get("SYSTEM_SMTP_PORT", 587))
     smtp_snd = st.secrets.get("SYSTEM_SMTP_SENDER", os.environ.get("SYSTEM_SMTP_SENDER", ""))
     smtp_pwd = st.secrets.get("SYSTEM_SMTP_PASSWORD", os.environ.get("SYSTEM_SMTP_PASSWORD", ""))
 
-    if not (smtp_srv and smtp_snd and smtp_pwd):
+    if sender_config and all(sender_config.get(key) for key in ("smtp_server", "smtp_sender", "smtp_password")):
+        smtp_srv = sender_config["smtp_server"]
+        smtp_prt = sender_config.get("smtp_port") or 587
+        smtp_snd = sender_config["smtp_sender"]
+        smtp_pwd = sender_config["smtp_password"]
+    elif not (smtp_srv and smtp_snd and smtp_pwd):
         try:
             with get_vault_connection() as conn:
                 c = conn.cursor()
@@ -1607,7 +1612,12 @@ elif st.session_state.active_page == "po_dispatch":
             st.text_area("PO Payload Preview", value=po_text, height=180)
             
             if st.button("DISPATCH RESTOCK PO", type="primary"):
-                sent, dispatch_msg = dispatch_platform_email(rcpt, f"PO RESTOCK ORDER - {sel_v}", po_text)
+                sent, dispatch_msg = dispatch_platform_email(
+                    rcpt,
+                    f"PO RESTOCK ORDER - {sel_v}",
+                    po_text,
+                    sender_config=current_user
+                )
                 if sent:
                     st.success(f"Purchase order transmitted to {rcpt}!")
                 else:
