@@ -1434,6 +1434,46 @@ if st.session_state.active_page == "dashboard":
 
         st.markdown("</div>", unsafe_allow_html=True)
 
+    st.markdown("#### **Operations Snapshot**")
+    snapshot_c1, snapshot_c2, snapshot_c3, snapshot_c4 = st.columns(4)
+    runway_values = analytics_df.loc[analytics_df["days_runway"] < 999, "days_runway"] if not analytics_df.empty else pd.Series(dtype=float)
+    average_runway = float(runway_values.mean()) if not runway_values.empty else 999.0
+    critical_runway = int((analytics_df["days_runway"] <= 7).sum()) if not analytics_df.empty else 0
+    class_a_count = int((analytics_df["abc_class"] == "A").sum()) if not analytics_df.empty else 0
+    expiry_value = float((analytics_df.loc[analytics_df["expiry_risk"] == "HIGH EXPIRY RISK", "stock"] * analytics_df.loc[analytics_df["expiry_risk"] == "HIGH EXPIRY RISK", "price"]).sum()) if not analytics_df.empty else 0.0
+
+    with snapshot_c1:
+        st.metric("Average Runway", "999+ days" if average_runway == 999.0 else f"{average_runway:.1f} days")
+    with snapshot_c2:
+        st.metric("≤ 7-Day Runway", f"{critical_runway} SKUs")
+    with snapshot_c3:
+        st.metric("Class-A Products", f"{class_a_count} SKUs")
+    with snapshot_c4:
+        st.metric("Expiry Exposure", format_currency(expiry_value))
+
+    watch_c1, watch_c2 = st.columns([1.15, 1])
+    with watch_c1:
+        st.markdown("**Fastest Movers**")
+        if not analytics_df.empty:
+            mover_cols = ["sku", "name", "category", "daily_velocity", "total_sold", "days_runway"]
+            mover_cols = [column for column in mover_cols if column in analytics_df.columns]
+            movers = analytics_df.sort_values(["daily_velocity", "total_sold"], ascending=False).head(8)[mover_cols].copy()
+            movers = movers.rename(columns={"daily_velocity": "Units/Day", "total_sold": "Total Sold", "days_runway": "Runway (Days)"})
+            st.dataframe(movers, use_container_width=True, hide_index=True)
+        else:
+            st.info("No inventory matches the selected filters.")
+
+    with watch_c2:
+        st.markdown("**Immediate Attention**")
+        if not analytics_df.empty:
+            attention_cols = ["sku", "name", "vendor", "stock", "rop", "days_runway", "reorder_status"]
+            attention_cols = [column for column in attention_cols if column in analytics_df.columns]
+            attention = analytics_df.sort_values(["days_runway", "stock"], ascending=True).head(8)[attention_cols].copy()
+            attention = attention.rename(columns={"days_runway": "Runway (Days)", "reorder_status": "Status"})
+            st.dataframe(attention, use_container_width=True, hide_index=True)
+        else:
+            st.info("No inventory matches the selected filters.")
+
 # 2. DEDICATED AI COPILOT PAGE
 elif st.session_state.active_page == "ai_copilot":
     st.markdown("##### **🤖 Autonomous AI Supply Agent & Copilot**")
