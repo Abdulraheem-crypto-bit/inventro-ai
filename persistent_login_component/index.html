@@ -22,7 +22,10 @@
       window.localStorage.setItem(key, args.token);
     }
     sendMessage("streamlit:setComponentValue", {
-      value: window.localStorage.getItem(key) || ""
+      data: {
+        type: "string",
+        value: window.localStorage.getItem(key) || ""
+      }
     });
     sendMessage("streamlit:setFrameHeight", { height: 0 });
   }
