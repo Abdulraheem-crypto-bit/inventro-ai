@@ -15,11 +15,11 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 import streamlit as st
-from streamlit_cookies_manager import CookieManager
 import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.exc import SQLAlchemyError
+from persistent_login import persistent_login
 
 # Plotly with Defensive Fallback
 try:
@@ -605,16 +605,10 @@ def save_user_credentials(user_id: int, dialect: str, host: str, port: str, dbna
 if "authenticated_user" not in st.session_state:
     st.session_state.authenticated_user = None
 
-remember_cookie = CookieManager(
-    prefix="inventro_ai_",
-    password=st.secrets.get("COOKIE_PASSWORD", os.environ.get("COOKIE_PASSWORD", "inventro-ai-cookie-key"))
-)
-if not remember_cookie.ready():
-    st.stop()
+remember_token = persistent_login()
 
 if not st.session_state.authenticated_user:
-    saved_token = remember_cookie.get("remember_token")
-    saved_user = fetch_user_by_remember_token(saved_token)
+    saved_user = fetch_user_by_remember_token(remember_token)
     if saved_user:
         st.session_state.authenticated_user = saved_user
         st.rerun()
@@ -673,7 +667,7 @@ if not st.session_state.authenticated_user:
                         if user_data:
                             remember_token = remember_user(user_data["id"])
                             if remember_token:
-                                remember_cookie["remember_token"] = remember_token
+                                persistent_login(remember_token)
                                 st.session_state.authenticated_user = user_data
                                 st.toast(f"Operator Verified: {login_email}", icon="⚡")
                                 st.rerun()
@@ -738,7 +732,7 @@ if not st.session_state.authenticated_user:
                                                     st.session_state.authenticated_user = user_check
                                                     remember_token = remember_user(user_check["id"])
                                                     if remember_token:
-                                                        remember_cookie["remember_token"] = remember_token
+                                                        persistent_login(remember_token)
                                                     st.toast(f"Operator Authenticated: {recovery_email_input}", icon="⚡")
                                                     st.rerun()
                                                 else:
@@ -1002,7 +996,7 @@ with st.sidebar:
 
     if st.button("TERMINATE SESSION", use_container_width=True):
         forget_user(current_user["id"])
-        remember_cookie.delete("remember_token")
+        persistent_login(clear=True)
         st.session_state.authenticated_user = None
         st.rerun()
 

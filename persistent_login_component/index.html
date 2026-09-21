@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+  <script src="https://unpkg.com/streamlit-component-lib@2.0.0/dist/index.js"></script>
+</head>
+<body>
+<script>
+  const key = "inventro_ai_remember_token";
+
+  function render(event) {
+    const args = event.detail.args || {};
+    if (args.clear) {
+      window.localStorage.removeItem(key);
+    } else if (args.token) {
+      window.localStorage.setItem(key, args.token);
+    }
+    Streamlit.setComponentValue(window.localStorage.getItem(key) || "");
+    Streamlit.setFrameHeight(0);
+  }
+
+  Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, render);
+  Streamlit.setComponentReady();
+  Streamlit.setFrameHeight(0);
+</script>
+</body>
+</html>
