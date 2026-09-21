@@ -1841,6 +1841,14 @@ elif st.session_state.active_page == "profile":
             type="password",
             key="profile_smtp_password"
         )
+        st.caption(
+            "How to create a Gmail App Password: "
+            "1) Open Google Account > Security. "
+            "2) Turn on 2-Step Verification. "
+            "3) Open App passwords, choose Mail and your device, then click Generate. "
+            "4) Paste the generated 16-character password here. "
+            "Never enter your normal Gmail password."
+        )
 
         if st.button("UPDATE VAULT & SAVE CONFIGURATION", type="primary", use_container_width=True):
             save_user_credentials(
