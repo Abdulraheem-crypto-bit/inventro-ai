@@ -22,7 +22,7 @@
       window.localStorage.setItem(key, args.token);
     }
     sendMessage("streamlit:setComponentValue", {
-      data: { type: "string", value: window.localStorage.getItem(key) || "" }
+      value: window.localStorage.getItem(key) || ""
     });
     sendMessage("streamlit:setFrameHeight", { height: 0 });
   }
@@ -33,7 +33,7 @@
     }
   });
 
-  sendMessage("streamlit:setComponentReady");
+  sendMessage("streamlit:componentReady", { apiVersion: 1 });
   sendMessage("streamlit:setFrameHeight", { height: 0 });
 </script>
 </body>

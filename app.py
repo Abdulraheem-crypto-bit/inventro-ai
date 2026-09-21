@@ -493,6 +493,12 @@ def dispatch_platform_email(recipient: str, subject: str, body_text: str) -> tup
 
     try:
         clean_recipient = recipient.strip()
+        smtp_snd = smtp_snd.strip()
+        smtp_pwd = "".join(smtp_pwd.split())
+        if not clean_recipient:
+            return False, "Enter the recipient email address before dispatching the purchase order."
+        if not smtp_pwd:
+            return False, "Enter the Gmail App Password in Profile & Vault, then save the configuration."
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"] = f"inventro.ai Platform <{smtp_snd}>"
@@ -538,6 +544,11 @@ def dispatch_platform_email(recipient: str, subject: str, body_text: str) -> tup
         server.send_message(msg)
         server.quit()
         return True, f"Transmission successfully dispatched to {clean_recipient}."
+    except smtplib.SMTPAuthenticationError:
+        return False, (
+            "Gmail rejected the credentials. Use a Gmail App Password, remove any spaces, "
+            "confirm it belongs to the sender email, save it in Profile & Vault, and try again."
+        )
     except Exception as e:
         return False, f"Dispatch failed: {str(e)}"
 
