@@ -509,6 +509,7 @@ def dispatch_platform_email(recipient: str, subject: str, body_text: str, sender
         msg["From"] = f"inventro.ai Platform <{smtp_snd}>"
         msg["To"] = clean_recipient
         msg["Reply-To"] = smtp_snd
+        msg["X-Mailer"] = "inventro.ai Purchase Order System"
         msg["Date"] = formatdate(localtime=True)
         msg["Message-ID"] = make_msgid(domain="inventro.ai")
 
@@ -531,7 +532,7 @@ def dispatch_platform_email(recipient: str, subject: str, body_text: str, sender
                 </div>
                 <hr style="border: none; border-top: 1px solid #1E2330; margin: 24px 0;" />
                 <div style="font-size: 11px; line-height: 1.5; color: #64748B;">
-                  This is an automated operational transmission dispatched by inventro.ai Autonomous Retail Operating System.
+                  Purchase order sent from the inventro.ai inventory system.
                 </div>
               </td>
             </tr>
@@ -1614,7 +1615,7 @@ elif st.session_state.active_page == "po_dispatch":
             if st.button("DISPATCH RESTOCK PO", type="primary"):
                 sent, dispatch_msg = dispatch_platform_email(
                     rcpt,
-                    f"PO RESTOCK ORDER - {sel_v}",
+                    f"Purchase order for {sel_v}",
                     po_text,
                     sender_config={
                         "smtp_server": "smtp.gmail.com",
