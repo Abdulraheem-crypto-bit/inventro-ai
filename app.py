@@ -1252,6 +1252,75 @@ st.markdown(f"""
 
 # 1. DASHBOARD OVERVIEW
 if st.session_state.active_page == "dashboard":
+    st.markdown("#### **Dashboard Filters**")
+    filter_c1, filter_c2, filter_c3, filter_c4 = st.columns([1.2, 1.2, 1.2, 1.5])
+
+    category_options = sorted(analytics_df["category"].dropna().astype(str).unique().tolist()) if "category" in analytics_df.columns else []
+    vendor_options = sorted(analytics_df["vendor"].dropna().astype(str).unique().tolist()) if "vendor" in analytics_df.columns else []
+    status_options = sorted(analytics_df["reorder_status"].dropna().astype(str).unique().tolist()) if "reorder_status" in analytics_df.columns else []
+
+    with filter_c1:
+        selected_categories = st.multiselect("Category", category_options, placeholder="All categories")
+    with filter_c2:
+        selected_vendors = st.multiselect("Supplier", vendor_options, placeholder="All suppliers")
+    with filter_c3:
+        selected_statuses = st.multiselect("Inventory Status", status_options, placeholder="All statuses")
+
+    total_inventory_items = len(analytics_df)
+    dashboard_df = analytics_df.copy()
+    if selected_categories:
+        dashboard_df = dashboard_df[dashboard_df["category"].astype(str).isin(selected_categories)]
+    if selected_vendors:
+        dashboard_df = dashboard_df[dashboard_df["vendor"].astype(str).isin(selected_vendors)]
+    if selected_statuses:
+        dashboard_df = dashboard_df[dashboard_df["reorder_status"].astype(str).isin(selected_statuses)]
+
+    dashboard_sales_df = df_sales.copy()
+    if selected_categories and "category" in dashboard_sales_df.columns:
+        dashboard_sales_df = dashboard_sales_df[dashboard_sales_df["category"].astype(str).isin(selected_categories)]
+    if "transaction_date" in dashboard_sales_df.columns and not dashboard_sales_df.empty:
+        dashboard_sales_df["_dashboard_date"] = pd.to_datetime(dashboard_sales_df["transaction_date"], errors="coerce")
+        valid_dates = dashboard_sales_df["_dashboard_date"].dropna()
+        if not valid_dates.empty:
+            with filter_c4:
+                selected_dates = st.date_input(
+                    "Sales Date Range",
+                    value=(valid_dates.min().date(), valid_dates.max().date()),
+                    min_value=valid_dates.min().date(),
+                    max_value=valid_dates.max().date()
+                )
+            if isinstance(selected_dates, tuple) and len(selected_dates) == 2:
+                start_date, end_date = selected_dates
+                dashboard_sales_df = dashboard_sales_df[
+                    dashboard_sales_df["_dashboard_date"].dt.date.between(start_date, end_date)
+                ]
+        else:
+            with filter_c4:
+                st.caption("No valid sales dates")
+    else:
+        with filter_c4:
+            st.caption("Date filter unavailable")
+
+    analytics_df = dashboard_df
+    df_sales = dashboard_sales_df
+    total_stock = int(analytics_df["stock"].sum()) if not analytics_df.empty else 0
+    restock_needed = int((analytics_df["reorder_status"] == "RESTOCK NEEDED").sum()) if not analytics_df.empty else 0
+    healthy_units = int((analytics_df["reorder_status"] == "HEALTHY").sum()) if not analytics_df.empty else 0
+    perish_alert = int((analytics_df["expiry_risk"] == "HIGH EXPIRY RISK").sum()) if not analytics_df.empty else 0
+    inventory_valuation = float((analytics_df["stock"] * analytics_df["price"]).sum()) if not analytics_df.empty else 0.0
+    nominal_balance_val = format_currency(inventory_valuation)
+    if not df_sales.empty and "quantity_sold" in df_sales.columns and "price" in df_sales.columns:
+        real_revenue = float((df_sales["quantity_sold"] * df_sales["price"]).sum())
+    elif not analytics_df.empty and "total_sold" in analytics_df.columns:
+        real_revenue = float((analytics_df["total_sold"] * analytics_df["price"]).sum())
+    else:
+        real_revenue = 0.0
+    nominal_revenue_val = format_currency(real_revenue)
+    real_po_outlay = float((analytics_df["suggested_po_qty"] * analytics_df["price"]).sum()) if not analytics_df.empty else 0.0
+    replenish_outlay_val = format_currency(real_po_outlay)
+
+    st.caption(f"Showing {len(analytics_df)} of {total_inventory_items} inventory items and {len(df_sales)} sales records.")
+
     if non_inventory_warning:
         st.warning("⚠️ Connected database contains tables, but none match a predictive retail inventory schema (e.g., employee or payroll records detected). Only stock datasets are ingested into predictive analytics.")
 
