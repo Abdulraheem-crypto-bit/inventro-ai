@@ -1773,6 +1773,70 @@ elif st.session_state.active_page == "db_terminal":
                 except Exception as q_err:
                     st.error(f"Query error: {q_err}")
 
+    st.divider()
+    st.markdown("**➕ Add New Product**")
+    st.caption("Add a product directly to the connected inventory table. The new item will appear in analytics after saving.")
+
+    with st.form("add_product_form", clear_on_submit=True):
+        product_c1, product_c2, product_c3 = st.columns(3)
+        with product_c1:
+            new_sku = st.text_input("SKU / Barcode *", placeholder="SKU-001")
+            new_name = st.text_input("Product Name *", placeholder="Fresh Whole Milk")
+            new_category = st.text_input("Category", value="General")
+            new_vendor = st.text_input("Supplier", value="Unassigned")
+        with product_c2:
+            new_stock = st.number_input("Opening Stock", min_value=0, value=0, step=1)
+            new_price = st.number_input("Unit Price", min_value=0.0, value=100.0, step=0.01)
+            new_lead_time = st.number_input("Lead Time (Days)", min_value=1, value=2, step=1)
+            new_expiry_days = st.number_input("Expiry (Days)", min_value=1, value=30, step=1)
+        with product_c3:
+            new_moq = st.number_input("Minimum Order Qty", min_value=1, value=1, step=1)
+            new_pack_size = st.number_input("Pack Size", min_value=1, value=1, step=1)
+            new_vendor_email = st.text_input("Supplier Email", placeholder="supplier@example.com")
+            save_product = st.form_submit_button("SAVE PRODUCT TO DATABASE", type="primary", use_container_width=True)
+
+    if save_product:
+        if not is_connected:
+            st.error("Connect to a database before adding a product.")
+        elif not detected_product_table:
+            st.error("Provision the production schemas first, then add a product.")
+        elif not new_sku.strip() or not new_name.strip():
+            st.warning("SKU and Product Name are required.")
+        else:
+            product_values = {
+                "sku": new_sku.strip(),
+                "name": new_name.strip(),
+                "category": new_category.strip() or "General",
+                "stock": int(new_stock),
+                "price": float(new_price),
+                "lead_time": int(new_lead_time),
+                "moq": int(new_moq),
+                "pack_size": int(new_pack_size),
+                "vendor": new_vendor.strip() or "Unassigned",
+                "email": new_vendor_email.strip(),
+                "expiry_days": int(new_expiry_days)
+            }
+            insert_columns = [canonical for canonical in product_values if canonical in prod_map]
+            if "sku" not in insert_columns or "name" not in insert_columns:
+                st.error("The connected product table must contain SKU and product name columns.")
+            else:
+                column_names = [prod_map[canonical] for canonical in insert_columns]
+                quoted_table = engine.dialect.identifier_preparer.quote(detected_product_table)
+                quoted_columns = ", ".join(engine.dialect.identifier_preparer.quote(column) for column in column_names)
+                bind_values = ", ".join(f":product_{index}" for index in range(len(insert_columns)))
+                insert_query = text(f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({bind_values})")
+                query_values = {f"product_{index}": product_values[canonical] for index, canonical in enumerate(insert_columns)}
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(insert_query, query_values)
+                    st.success(f"Product `{new_sku.strip()}` added successfully.")
+                    st.rerun()
+                except Exception as insert_error:
+                    if "duplicate" in str(insert_error).lower() or "unique" in str(insert_error).lower():
+                        st.error(f"SKU `{new_sku.strip()}` already exists. Use a unique SKU.")
+                    else:
+                        st.error(f"Product could not be added: {insert_error}")
+
 # 10. HELP & SUPPORT (TICKET INGESTION)
 elif st.session_state.active_page == "support":
     st.markdown("##### **💬 Operator Help Desk & System Support**")
