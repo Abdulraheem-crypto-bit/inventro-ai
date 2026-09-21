@@ -6,37 +6,35 @@
 <script>
   const key = "inventro_ai_remember_token";
 
-  function render(event) {
-    const args = event.detail.args || {};
+  function sendMessage(type, data = {}) {
+    window.parent.postMessage({
+      isStreamlitMessage: true,
+      type,
+      ...data
+    }, "*");
+  }
+
+  function render(args) {
+    args = args || {};
     if (args.clear) {
       window.localStorage.removeItem(key);
     } else if (args.token) {
       window.localStorage.setItem(key, args.token);
     }
-    Streamlit.setComponentValue(window.localStorage.getItem(key) || "");
-    Streamlit.setFrameHeight(0);
+    sendMessage("streamlit:setComponentValue", {
+      data: { type: "string", value: window.localStorage.getItem(key) || "" }
+    });
+    sendMessage("streamlit:setFrameHeight", { height: 0 });
   }
 
-  function startComponent() {
-    Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, render);
-    Streamlit.setComponentReady();
-    Streamlit.setFrameHeight(0);
-  }
+  window.addEventListener("message", (event) => {
+    if (event.data && event.data.type === "streamlit:render") {
+      render(event.data.args);
+    }
+  });
 
-  function loadComponentLibrary(url, fallbackUrl) {
-    const script = document.createElement("script");
-    script.src = url;
-    script.onload = startComponent;
-    script.onerror = () => {
-      if (fallbackUrl) loadComponentLibrary(fallbackUrl, "");
-    };
-    document.head.appendChild(script);
-  }
-
-  loadComponentLibrary(
-    "https://cdn.jsdelivr.net/npm/streamlit-component-lib@2.0.0/dist/index.js",
-    "https://unpkg.com/streamlit-component-lib@2.0.0/dist/index.js"
-  );
+  sendMessage("streamlit:setComponentReady");
+  sendMessage("streamlit:setFrameHeight", { height: 0 });
 </script>
 </body>
 </html>
