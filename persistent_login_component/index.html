@@ -1,7 +1,6 @@
 <!doctype html>
 <html>
 <head>
-  <script src="https://unpkg.com/streamlit-component-lib@2.0.0/dist/index.js"></script>
 </head>
 <body>
 <script>
@@ -18,9 +17,26 @@
     Streamlit.setFrameHeight(0);
   }
 
-  Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, render);
-  Streamlit.setComponentReady();
-  Streamlit.setFrameHeight(0);
+  function startComponent() {
+    Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, render);
+    Streamlit.setComponentReady();
+    Streamlit.setFrameHeight(0);
+  }
+
+  function loadComponentLibrary(url, fallbackUrl) {
+    const script = document.createElement("script");
+    script.src = url;
+    script.onload = startComponent;
+    script.onerror = () => {
+      if (fallbackUrl) loadComponentLibrary(fallbackUrl, "");
+    };
+    document.head.appendChild(script);
+  }
+
+  loadComponentLibrary(
+    "https://cdn.jsdelivr.net/npm/streamlit-component-lib@2.0.0/dist/index.js",
+    "https://unpkg.com/streamlit-component-lib@2.0.0/dist/index.js"
+  );
 </script>
 </body>
 </html>
