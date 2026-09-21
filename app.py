@@ -1813,15 +1813,47 @@ elif st.session_state.active_page == "profile":
         st.markdown(f"• **Session Security:** `AES-SHA256 Tokenized`")
         st.markdown(f"• **Relay Status:** `Autonomous Global Service Active`")
 
+        st.markdown("###### **4. PO Email Sender Settings**")
+        st.caption("Enter the mailbox that should send purchase orders. For Gmail, use an App Password.")
+        smtp_server_input = st.text_input(
+            "SMTP Server",
+            value=current_user.get("smtp_server", ""),
+            placeholder="smtp.gmail.com",
+            key="profile_smtp_server"
+        )
+        smtp_port_input = st.number_input(
+            "SMTP Port",
+            min_value=1,
+            max_value=65535,
+            value=int(current_user.get("smtp_port", 587) or 587),
+            step=1,
+            key="profile_smtp_port"
+        )
+        smtp_sender_input = st.text_input(
+            "Sender Email Address",
+            value=current_user.get("smtp_sender", ""),
+            placeholder="your-email@gmail.com",
+            key="profile_smtp_sender"
+        )
+        smtp_password_input = st.text_input(
+            "Email App Password",
+            value=current_user.get("smtp_password", ""),
+            type="password",
+            key="profile_smtp_password"
+        )
+
         if st.button("UPDATE VAULT & SAVE CONFIGURATION", type="primary", use_container_width=True):
             save_user_credentials(
                 current_user["id"], p_dialect, p_host, str(p_port), p_name, p_user, p_pass,
-                p_uri, selected_curr_code, selected_curr_sym
+                p_uri, selected_curr_code, selected_curr_sym,
+                smtp_server_input, int(smtp_port_input), smtp_sender_input, smtp_password_input
             )
             current_user.update({
                 "db_dialect": p_dialect, "db_host": p_host, "db_port": str(p_port), "db_name": p_name,
                 "db_user": p_user, "db_pass": p_pass, "db_uri": p_uri,
-                "currency_code": selected_curr_code, "currency_symbol": selected_curr_sym
+                "currency_code": selected_curr_code, "currency_symbol": selected_curr_sym,
+                "smtp_server": smtp_server_input, "smtp_port": int(smtp_port_input),
+                "smtp_sender": smtp_sender_input, "smtp_password": smtp_password_input
             })
             st.toast("Profile, Currency & Vault Updated!", icon="💾")
             st.rerun()
