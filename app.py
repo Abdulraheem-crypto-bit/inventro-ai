@@ -15,6 +15,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 import streamlit as st
+from streamlit_cookies_manager import CookieManager
 import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine, text, inspect
@@ -345,7 +346,8 @@ def init_vault_db():
                 ("smtp_port", "INTEGER DEFAULT 587"),
                 ("smtp_sender", "TEXT DEFAULT ''"),
                 ("smtp_password", "TEXT DEFAULT ''"),
-                ("reset_token", "TEXT DEFAULT ''")
+                ("reset_token", "TEXT DEFAULT ''"),
+                ("remember_token", "TEXT DEFAULT ''")
             ]
             for col, col_type in migration_fields:
                 if col not in existing_cols:
@@ -437,6 +439,34 @@ def fetch_user_by_email(email: str):
     except Exception:
         return None
     return None
+
+def remember_user(user_id: int) -> str | None:
+    token = secrets.token_urlsafe(48)
+    try:
+        with get_vault_connection() as conn:
+            conn.execute("UPDATE users SET remember_token = ? WHERE id = ?", (token, user_id))
+            conn.commit()
+        return token
+    except Exception:
+        return None
+
+def fetch_user_by_remember_token(token: str):
+    if not token:
+        return None
+    try:
+        with get_vault_connection() as conn:
+            row = conn.execute("SELECT email FROM users WHERE remember_token = ?", (token,)).fetchone()
+        return fetch_user_by_email(row[0]) if row else None
+    except Exception:
+        return None
+
+def forget_user(user_id: int):
+    try:
+        with get_vault_connection() as conn:
+            conn.execute("UPDATE users SET remember_token = '' WHERE id = ?", (user_id,))
+            conn.commit()
+    except Exception:
+        pass
 
 # ==========================================
 # ANTI-SPAM OPTIMIZED AUTONOMOUS RELAY
@@ -575,6 +605,20 @@ def save_user_credentials(user_id: int, dialect: str, host: str, port: str, dbna
 if "authenticated_user" not in st.session_state:
     st.session_state.authenticated_user = None
 
+remember_cookie = CookieManager(
+    prefix="inventro_ai_",
+    password=st.secrets.get("COOKIE_PASSWORD", os.environ.get("COOKIE_PASSWORD", "inventro-ai-cookie-key"))
+)
+if not remember_cookie.ready():
+    st.stop()
+
+if not st.session_state.authenticated_user:
+    saved_token = remember_cookie.get("remember_token")
+    saved_user = fetch_user_by_remember_token(saved_token)
+    if saved_user:
+        st.session_state.authenticated_user = saved_user
+        st.rerun()
+
 query_params = st.query_params
 active_reset_token = query_params.get("reset_token", None)
 
@@ -627,9 +671,13 @@ if not st.session_state.authenticated_user:
                     if login_email and login_pass:
                         user_data = verify_user(login_email, login_pass)
                         if user_data:
-                            st.session_state.authenticated_user = user_data
-                            st.toast(f"Operator Verified: {login_email}", icon="⚡")
-                            st.rerun()
+                            remember_token = remember_user(user_data["id"])
+                            if remember_token:
+                                remember_cookie["remember_token"] = remember_token
+                                st.session_state.authenticated_user = user_data
+                                st.toast(f"Operator Verified: {login_email}", icon="⚡")
+                                st.rerun()
+                            st.error("Unable to save the persistent login session.")
                         else:
                             st.error("Authentication rejected: Invalid email or password.")
                     else:
@@ -688,6 +736,9 @@ if not st.session_state.authenticated_user:
                                                     conn.commit()
                                                     
                                                     st.session_state.authenticated_user = user_check
+                                                    remember_token = remember_user(user_check["id"])
+                                                    if remember_token:
+                                                        remember_cookie["remember_token"] = remember_token
                                                     st.toast(f"Operator Authenticated: {recovery_email_input}", icon="⚡")
                                                     st.rerun()
                                                 else:
@@ -950,6 +1001,8 @@ with st.sidebar:
         st.markdown("<span class='chip chip-amber' style='width: 100%; justify-content: center; margin-bottom: 8px;'>PIPELINE: STANDBY / OFFLINE</span>", unsafe_allow_html=True)
 
     if st.button("TERMINATE SESSION", use_container_width=True):
+        forget_user(current_user["id"])
+        remember_cookie.delete("remember_token")
         st.session_state.authenticated_user = None
         st.rerun()
 
