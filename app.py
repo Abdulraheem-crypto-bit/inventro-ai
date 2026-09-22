@@ -1479,6 +1479,91 @@ if st.session_state.active_page == "dashboard":
 
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # Executive control room: translate the filtered telemetry into decisions.
+    dashboard_health = round(
+        max(0, 100 - (restock_needed / max(1, len(analytics_df)) * 45) - (perish_alert / max(1, len(analytics_df)) * 25)),
+        1
+    ) if not analytics_df.empty else 0.0
+    dashboard_units_sold = int(pd.to_numeric(df_sales["quantity_sold"], errors="coerce").fillna(0).sum()) if not df_sales.empty and "quantity_sold" in df_sales.columns else 0
+    dashboard_transactions = len(df_sales)
+    dashboard_average_sale = real_revenue / dashboard_transactions if dashboard_transactions else 0.0
+    dashboard_stockout_exposure = float(
+        (analytics_df.loc[analytics_df["days_runway"] <= 7, "stock"] * analytics_df.loc[analytics_df["days_runway"] <= 7, "price"]).sum()
+    ) if not analytics_df.empty else 0.0
+
+    st.markdown("#### **Executive Control Room**")
+    control_c1, control_c2, control_c3, control_c4 = st.columns(4)
+    control_c1.metric("Inventory Health", f"{dashboard_health:.1f}/100", "Healthy" if dashboard_health >= 80 else "Review required")
+    control_c2.metric("Demand Momentum", f"{dashboard_units_sold:,} units", f"{dashboard_transactions} transactions")
+    control_c3.metric("Average Sale", format_currency(dashboard_average_sale))
+    control_c4.metric("7-Day Exposure", format_currency(dashboard_stockout_exposure), "Stock at risk")
+
+    control_tab_actions, control_tab_categories, control_tab_suppliers = st.tabs([
+        "Next Best Actions", "Category Pulse", "Supplier Commitments"
+    ])
+
+    with control_tab_actions:
+        action_rows = []
+        if restock_needed:
+            action_rows.append({
+                "Priority": "CRITICAL", "Action": "Prepare replenishment orders",
+                "Evidence": f"{restock_needed} SKU(s) at or below ROP",
+                "Value at Stake": format_currency(real_po_outlay)
+            })
+        if critical_runway:
+            action_rows.append({
+                "Priority": "HIGH", "Action": "Protect short-runway products",
+                "Evidence": f"{critical_runway} SKU(s) have 7 days or less of cover",
+                "Value at Stake": format_currency(dashboard_stockout_exposure)
+            })
+        if perish_alert:
+            action_rows.append({
+                "Priority": "HIGH", "Action": "Review expiry markdown or transfer",
+                "Evidence": f"{perish_alert} SKU(s) expire within 7 days",
+                "Value at Stake": format_currency(expiry_value)
+            })
+        if not action_rows:
+            action_rows.append({
+                "Priority": "WATCH", "Action": "Continue monitoring",
+                "Evidence": "No immediate exceptions in the selected view",
+                "Value at Stake": format_currency(0)
+            })
+        st.dataframe(pd.DataFrame(action_rows), use_container_width=True, hide_index=True)
+
+    with control_tab_categories:
+        if not analytics_df.empty:
+            category_pulse = analytics_df.assign(
+                inventory_value=analytics_df["stock"] * analytics_df["price"]
+            ).groupby("category").agg(
+                SKUs=("sku", "nunique"), Stock=("stock", "sum"),
+                Units_Sold=("total_sold", "sum"), Restock_SKUs=("reorder_status", lambda values: (values == "RESTOCK NEEDED").sum()),
+                Inventory_Value=("inventory_value", "sum")
+            ).reset_index().sort_values("Inventory_Value", ascending=False).head(8)
+            category_pulse["Inventory_Value"] = category_pulse["Inventory_Value"].map(format_currency)
+            category_pulse = category_pulse.rename(columns={
+                "category": "Category", "Units_Sold": "Units Sold", "Restock_SKUs": "Restock SKUs", "Inventory_Value": "Inventory Value"
+            })
+            st.dataframe(category_pulse, use_container_width=True, hide_index=True)
+        else:
+            st.info("No category data in the selected view.")
+
+    with control_tab_suppliers:
+        if not analytics_df.empty:
+            supplier_commitments = analytics_df.assign(
+                po_value=analytics_df["suggested_po_qty"] * analytics_df["price"]
+            ).groupby("vendor").agg(
+                SKUs=("sku", "nunique"), Order_Units=("suggested_po_qty", "sum"),
+                Estimated_Spend=("po_value", "sum"), Avg_Lead_Days=("lead_time", "mean")
+            ).reset_index().sort_values("Estimated_Spend", ascending=False).head(8)
+            supplier_commitments["Estimated_Spend"] = supplier_commitments["Estimated_Spend"].map(format_currency)
+            supplier_commitments["Avg_Lead_Days"] = supplier_commitments["Avg_Lead_Days"].round(1)
+            supplier_commitments = supplier_commitments.rename(columns={
+                "vendor": "Supplier", "Order_Units": "Order Units", "Estimated_Spend": "Estimated Spend", "Avg_Lead_Days": "Avg Lead Days"
+            })
+            st.dataframe(supplier_commitments, use_container_width=True, hide_index=True)
+        else:
+            st.info("No supplier data in the selected view.")
+
     st.markdown("#### **Operations Snapshot**")
     snapshot_c1, snapshot_c2, snapshot_c3, snapshot_c4 = st.columns(4)
     runway_values = analytics_df.loc[analytics_df["days_runway"] < 999, "days_runway"] if not analytics_df.empty else pd.Series(dtype=float)
