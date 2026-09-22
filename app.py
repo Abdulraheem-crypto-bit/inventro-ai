@@ -846,6 +846,7 @@ COLUMN_SYNONYMS = {
     "email": ["email", "vendor_email", "supplier_email", "contact_email", "dispatch_email", "inbox"],
     "expiry_days": ["expiry_days", "shelf_life", "expiry", "expiration_days", "days_to_expire", "perishability_days"],
     "price": ["price", "unit_price", "cost", "mrp", "retail_price", "rate", "sale_price"],
+    "unit_cost": ["unit_cost", "cost_price", "purchase_price", "wholesale_price", "cogs", "cost"],
     "quantity_sold": ["quantity_sold", "qty_sold", "units_sold", "sales", "volume", "sold_qty", "quantity"],
     "transaction_date": ["transaction_date", "timestamp", "date", "sale_date", "txn_date", "created_at"]
 }
@@ -895,7 +896,7 @@ def resolve_and_normalize(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
     numeric_defaults = {
         "stock": 0, "lead_time": 2, "moq": 1, "pack_size": 1,
-        "expiry_days": 30, "price": 100.0, "quantity_sold": 1
+        "expiry_days": 30, "price": 100.0, "unit_cost": 0.0, "quantity_sold": 1
     }
     for col, def_val in numeric_defaults.items():
         if col in normalized_df.columns:
@@ -1537,7 +1538,119 @@ elif st.session_state.active_page == "ai_copilot":
 
 # 3. RECENT TRANSACTIONS
 elif st.session_state.active_page == "recent_tx":
-    st.markdown("##### **📋 Recent Fleet Movements & Ledger Events**")
+    st.markdown("##### **📋 Daily Sales & Recent Transactions**")
+
+    sales_view = df_sales.copy()
+    if not sales_view.empty and "transaction_date" in sales_view.columns:
+        sales_view["transaction_date"] = pd.to_datetime(sales_view["transaction_date"], errors="coerce")
+        sales_view = sales_view.dropna(subset=["transaction_date"])
+
+    today = datetime.now().date()
+    if not sales_view.empty:
+        available_days = sorted(sales_view["transaction_date"].dt.date.unique())
+        default_day = today if today in available_days else available_days[-1]
+        selected_day = st.date_input(
+            "Sales Day",
+            value=default_day,
+            min_value=available_days[0],
+            max_value=max(today, available_days[-1])
+        )
+    else:
+        available_days = []
+        selected_day = today
+
+    selected_sales = sales_view[
+        sales_view["transaction_date"].dt.date == selected_day
+    ].copy() if not sales_view.empty else pd.DataFrame()
+
+    if not selected_sales.empty and "sku" in selected_sales.columns and not analytics_df.empty:
+        catalog_columns = [column for column in ["sku", "price", "unit_cost", "name", "category"] if column in analytics_df.columns]
+        catalog_lookup = analytics_df[catalog_columns].drop_duplicates("sku")
+        selected_sales = selected_sales.merge(catalog_lookup, on="sku", how="left", suffixes=("_sale", "_catalog"))
+        selected_sales["sale_price"] = selected_sales.get("price_catalog", pd.Series(0, index=selected_sales.index)).fillna(
+            selected_sales.get("price_sale", pd.Series(0, index=selected_sales.index))
+        )
+        if "unit_cost_catalog" in selected_sales:
+            selected_sales["unit_cost_used"] = selected_sales["unit_cost_catalog"].fillna(
+                selected_sales.get("unit_cost_sale", pd.Series(0, index=selected_sales.index))
+            )
+        else:
+            selected_sales["unit_cost_used"] = selected_sales.get("unit_cost_sale", 0)
+        selected_sales["product_name_display"] = selected_sales.get("name_catalog", selected_sales.get("product_name", "Unknown"))
+        selected_sales["category_display"] = selected_sales.get("category_catalog", selected_sales.get("category_sale", "Uncategorized"))
+    elif not selected_sales.empty:
+        selected_sales["sale_price"] = selected_sales.get("price", 0)
+        selected_sales["unit_cost_used"] = selected_sales.get("unit_cost", 0)
+        selected_sales["product_name_display"] = selected_sales.get("product_name", "Unknown")
+        selected_sales["category_display"] = selected_sales.get("category", "Uncategorized")
+
+    if not selected_sales.empty:
+        selected_sales["sale_price"] = pd.to_numeric(selected_sales["sale_price"], errors="coerce").fillna(0)
+        selected_sales["unit_cost_used"] = pd.to_numeric(selected_sales["unit_cost_used"], errors="coerce").fillna(0)
+        selected_sales["quantity_sold"] = pd.to_numeric(selected_sales["quantity_sold"], errors="coerce").fillna(0)
+        selected_sales["sale_value"] = selected_sales["quantity_sold"] * selected_sales["sale_price"]
+        selected_sales["cost_value"] = selected_sales["quantity_sold"] * selected_sales["unit_cost_used"]
+        selected_sales["gross_profit"] = selected_sales["sale_value"] - selected_sales["cost_value"]
+
+    daily_units = int(selected_sales["quantity_sold"].sum()) if not selected_sales.empty else 0
+    daily_revenue = float(selected_sales["sale_value"].sum()) if not selected_sales.empty else 0.0
+    daily_cost = float(selected_sales["cost_value"].sum()) if not selected_sales.empty else 0.0
+    daily_profit = daily_revenue - daily_cost
+    daily_sales_count = len(selected_sales)
+    products_sold = int(selected_sales["sku"].nunique()) if not selected_sales.empty and "sku" in selected_sales else 0
+    average_transaction = daily_revenue / daily_sales_count if daily_sales_count else 0.0
+    has_cost_data = not selected_sales.empty and bool((selected_sales["unit_cost_used"] > 0).all())
+    margin = (daily_profit / daily_revenue * 100) if has_cost_data and daily_revenue else 0.0
+
+    summary_c1, summary_c2, summary_c3, summary_c4 = st.columns(4)
+    summary_c1.metric("Transactions", daily_sales_count)
+    summary_c2.metric("Units Sold", f"{daily_units:,}")
+    summary_c3.metric("Gross Sales", format_currency(daily_revenue))
+    summary_c4.metric("Gross Profit", format_currency(daily_profit) if has_cost_data else "N/A", help="Gross profit requires a unit cost or COGS column in the sales or products table.")
+
+    detail_c1, detail_c2, detail_c3, detail_c4 = st.columns(4)
+    detail_c1.metric("Products Sold", products_sold)
+    detail_c2.metric("Average Transaction", format_currency(average_transaction))
+    detail_c3.metric("Cost of Goods", format_currency(daily_cost) if has_cost_data else "N/A")
+    detail_c4.metric("Gross Margin", f"{margin:.1f}%" if has_cost_data else "N/A")
+
+    st.caption(
+        f"Sales ledger for {selected_day.strftime('%d %b %Y')}. "
+        f"Showing {daily_sales_count} transactions across {products_sold} products. "
+        + ("Profit uses recorded unit cost / COGS." if has_cost_data else "Add a unit_cost, cost_price, purchase_price, or COGS column to enable profit metrics.")
+    )
+
+    if not sales_view.empty:
+        sales_view["sale_day"] = sales_view["transaction_date"].dt.date
+        trend = sales_view.groupby("sale_day").agg(
+            transactions=("sku", "count"), units_sold=("quantity_sold", "sum")
+        ).reset_index().sort_values("sale_day", ascending=False).head(7)
+        trend["sale_day"] = trend["sale_day"].astype(str)
+        st.markdown("**Last 7 Days Activity**")
+        st.dataframe(trend, use_container_width=True, hide_index=True)
+
+    if not selected_sales.empty:
+        st.markdown(f"**Sales Ledger for {selected_day.strftime('%d %b %Y')}**")
+        sales_columns = ["transaction_date", "sku", "product_name_display", "category_display", "quantity_sold", "sale_price", "sale_value", "cost_value", "gross_profit"]
+        sales_columns = [column for column in sales_columns if column in selected_sales.columns]
+        display_sales = selected_sales[sales_columns].sort_values("transaction_date", ascending=False).copy()
+        display_sales = display_sales.rename(columns={
+            "transaction_date": "Time", "product_name_display": "Product", "category_display": "Category",
+            "quantity_sold": "Units", "sale_price": "Unit Price", "sale_value": "Gross Sales",
+            "cost_value": "Cost", "gross_profit": "Gross Profit"
+        })
+        st.dataframe(display_sales, use_container_width=True, hide_index=True)
+        csv_data = display_sales.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "DOWNLOAD DAILY SALES CSV",
+            data=csv_data,
+            file_name=f"sales_{selected_day.isoformat()}.csv",
+            mime="text/csv"
+        )
+    else:
+        st.info(f"No sales recorded for {selected_day.strftime('%d %b %Y')} yet. POS checkouts will appear here immediately after commit.")
+
+    st.markdown("**Recent Fleet Movements**")
     if not raw_movements.empty:
         st.dataframe(raw_movements.head(20), use_container_width=True, hide_index=True)
     elif not analytics_df.empty:
@@ -2039,6 +2152,7 @@ elif st.session_state.active_page == "profile":
                 p_uri, selected_curr_code, selected_curr_sym,
                 smtp_server_input, int(smtp_port_input), smtp_sender_input, smtp_password_input
             )
+            get_db_engine.clear()
             current_user.update({
                 "db_dialect": p_dialect, "db_host": p_host, "db_port": str(p_port), "db_name": p_name,
                 "db_user": p_user, "db_pass": p_pass, "db_uri": p_uri,
