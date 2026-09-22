@@ -1156,6 +1156,43 @@ def execute_autonomous_eda(df_prod: pd.DataFrame, df_sls: pd.DataFrame, df_mv: p
         "vendors_count": int(df_prod["vendor"].nunique()) if "vendor" in df_prod.columns else 0,
         "top_vendor": str(df_prod["vendor"].mode()[0]) if "vendor" in df_prod.columns and not df_prod.empty else "N/A"
     }
+    required_product_fields = ["sku", "name", "category", "stock", "price", "vendor"]
+    completeness = {}
+    for field in required_product_fields:
+        if field in df_prod.columns:
+            missing = df_prod[field].isna() | df_prod[field].astype(str).str.strip().eq("")
+            completeness[field] = {
+                "missing": int(missing.sum()),
+                "coverage_pct": round(float((~missing).mean() * 100), 1)
+            }
+    eda["completeness"] = completeness
+
+    sales_insights = {
+        "total_units": 0,
+        "gross_sales": 0.0,
+        "active_days": 0,
+        "average_units_per_day": 0.0,
+        "top_sku": "N/A"
+    }
+    if not df_sls.empty:
+        sales_insights["total_units"] = int(pd.to_numeric(df_sls.get("quantity_sold", 0), errors="coerce").fillna(0).sum())
+        if "price" in df_sls.columns:
+            sales_insights["gross_sales"] = float(
+                (pd.to_numeric(df_sls["quantity_sold"], errors="coerce").fillna(0) *
+                 pd.to_numeric(df_sls["price"], errors="coerce").fillna(0)).sum()
+            )
+        if "transaction_date" in df_sls.columns:
+            sales_dates = pd.to_datetime(df_sls["transaction_date"], errors="coerce").dropna().dt.date
+            sales_insights["active_days"] = int(sales_dates.nunique())
+            if sales_insights["active_days"]:
+                sales_insights["average_units_per_day"] = round(
+                    sales_insights["total_units"] / sales_insights["active_days"], 1
+                )
+        if "sku" in df_sls.columns:
+            top_skus = df_sls.groupby("sku")["quantity_sold"].sum().sort_values(ascending=False)
+            if not top_skus.empty:
+                sales_insights["top_sku"] = str(top_skus.index[0])
+    eda["sales_insights"] = sales_insights
     outliers = {}
     if "stock" in df_prod.columns and len(df_prod) >= 4:
         q1, q3 = df_prod["stock"].quantile(0.25), df_prod["stock"].quantile(0.75)
@@ -1167,6 +1204,13 @@ def execute_autonomous_eda(df_prod: pd.DataFrame, df_sls: pd.DataFrame, df_mv: p
     quality_issues = []
     if "stock" in df_prod.columns and (df_prod["stock"] < 0).any():
         quality_issues.append(f"Negative stock in {int((df_prod['stock'] < 0).sum())} SKU(s).")
+    for field, details in completeness.items():
+        if details["missing"]:
+            quality_issues.append(f"{details['missing']} catalog row(s) missing {field}.")
+    if not df_sls.empty and "transaction_date" in df_sls.columns:
+        invalid_dates = pd.to_datetime(df_sls["transaction_date"], errors="coerce").isna().sum()
+        if invalid_dates:
+            quality_issues.append(f"{int(invalid_dates)} sales record(s) have invalid transaction dates.")
     eda["data_quality"] = quality_issues
     return eda
 
@@ -1663,33 +1707,109 @@ elif st.session_state.active_page == "recent_tx":
 # 4. DATA REPORT (EDA)
 elif st.session_state.active_page == "eda_report":
     st.markdown("##### **🔬 14-Point Automated Statistical EDA Telemetry**")
+    st.caption("A decision view of catalog quality, sales behavior, inventory concentration, and exceptions requiring attention.")
     if not eda_results:
         st.info("Awaiting live database connection to compile exploratory audit.")
     else:
-        eda_c1, eda_c2, eda_c3, eda_c4 = st.columns(4)
+        sales_info = eda_results["sales_insights"]
+        quality_score = round(
+            sum(details["coverage_pct"] for details in eda_results["completeness"].values()) /
+            max(1, len(eda_results["completeness"])), 1
+        )
+        eda_c1, eda_c2, eda_c3, eda_c4, eda_c5 = st.columns(5)
         eda_c1.metric("Catalog SKUs", eda_results["overview"]["catalog_rows"])
         eda_c2.metric("Ledger Records", eda_results["overview"]["sales_ledger_rows"])
-        eda_c3.metric("Stock Outliers", eda_results["outliers"]["stock_outliers"])
-        eda_c4.metric("Audit Cells Scanned", f"{eda_results['overview']['total_cells_scanned']:,}")
+        eda_c3.metric("Units Sold", f"{sales_info['total_units']:,}")
+        eda_c4.metric("Gross Sales", format_currency(sales_info["gross_sales"]))
+        eda_c5.metric("Data Coverage", f"{quality_score:.1f}%")
 
         st.divider()
-        e_col1, e_col2 = st.columns(2)
-        with e_col1:
-            st.markdown("**Numerical Feature Distributions**")
-            num_df = pd.DataFrame(eda_results["numerical_stats"]).T
-            num_df.index.name = "Metric"
-            st.dataframe(num_df.reset_index(), use_container_width=True, hide_index=True)
-        with e_col2:
-            st.markdown("**Data Hygiene & Anomaly Screening**")
-            dup_s = eda_results['duplicates']['duplicate_skus']
-            dup_t = eda_results['duplicates']['duplicate_transactions']
-            st.markdown(f"• **Duplicate Primary Barcodes:** `{'None (100% Unique)' if dup_s == 0 else f'{dup_s} conflicts'}`")
-            st.markdown(f"• **Duplicate Sales Events:** `{'None (Clean)' if dup_t == 0 else f'{dup_t} duplicates'}`")
-            if eda_results["data_quality"]:
-                for dq in eda_results["data_quality"]:
-                    st.error(f"⚠️ {dq}")
+        eda_tab_quality, eda_tab_sales, eda_tab_inventory, eda_tab_actions = st.tabs([
+            "Data Quality", "Sales Intelligence", "Inventory Concentration", "Action Queue"
+        ])
+
+        with eda_tab_quality:
+            quality_col1, quality_col2 = st.columns([1, 1.4])
+            with quality_col1:
+                st.markdown("**Numerical Feature Distributions**")
+                num_df = pd.DataFrame(eda_results["numerical_stats"]).T
+                num_df.index.name = "Metric"
+                st.dataframe(num_df.reset_index(), use_container_width=True, hide_index=True)
+            with quality_col2:
+                st.markdown("**Field Completeness**")
+                completeness_df = pd.DataFrame([
+                    {"Field": field, "Coverage": f"{details['coverage_pct']:.1f}%", "Missing Rows": details["missing"]}
+                    for field, details in eda_results["completeness"].items()
+                ])
+                st.dataframe(completeness_df, use_container_width=True, hide_index=True)
+                dup_s = eda_results["duplicates"]["duplicate_skus"]
+                dup_t = eda_results["duplicates"]["duplicate_transactions"]
+                st.caption(f"Duplicate SKUs: {dup_s} | Duplicate transactions: {dup_t} | Audit cells: {eda_results['overview']['total_cells_scanned']:,}")
+                if eda_results["data_quality"]:
+                    for dq in eda_results["data_quality"]:
+                        st.warning(f"⚠️ {dq}")
+                else:
+                    st.success("Clean pipeline: no quality exceptions detected.")
+
+        with eda_tab_sales:
+            sales_col1, sales_col2 = st.columns([1, 1.5])
+            with sales_col1:
+                st.metric("Active Sales Days", sales_info["active_days"])
+                st.metric("Average Units / Day", f"{sales_info['average_units_per_day']:,.1f}")
+                st.metric("Top-Selling SKU", sales_info["top_sku"])
+            with sales_col2:
+                if not df_sales.empty and "transaction_date" in df_sales.columns:
+                    sales_trend = df_sales.copy()
+                    sales_trend["sale_date"] = pd.to_datetime(sales_trend["transaction_date"], errors="coerce").dt.date
+                    sales_trend["units"] = pd.to_numeric(sales_trend["quantity_sold"], errors="coerce").fillna(0)
+                    sales_trend = sales_trend.dropna(subset=["sale_date"]).groupby("sale_date").agg(
+                        Transactions=("sku", "count"), Units=("units", "sum")
+                    ).reset_index().sort_values("sale_date", ascending=False).head(14)
+                    st.markdown("**Recent Sales Activity**")
+                    st.dataframe(sales_trend, use_container_width=True, hide_index=True)
+                else:
+                    st.info("Transaction dates are required for sales activity analysis.")
+
+        with eda_tab_inventory:
+            if not analytics_df.empty:
+                stock_values = analytics_df.assign(stock_value=analytics_df["stock"] * analytics_df["price"])
+                category_summary = stock_values.groupby("category").agg(
+                    SKUs=("sku", "nunique"), Stock=("stock", "sum"),
+                    Stock_Value=("stock_value", "sum"), Restock_Risk=("reorder_status", lambda values: (values == "RESTOCK NEEDED").sum())
+                ).reset_index().sort_values("Stock_Value", ascending=False)
+                category_summary["Stock_Value"] = category_summary["Stock_Value"].map(format_currency)
+                category_summary = category_summary.rename(columns={"Stock_Value": "Inventory Value", "Restock_Risk": "Restock SKUs"})
+                st.markdown("**Category Inventory Concentration**")
+                st.dataframe(category_summary, use_container_width=True, hide_index=True)
             else:
-                st.success("✅ Clean Pipeline: Zero negative stock or future date leakage detected.")
+                st.info("Connect an inventory catalog to analyze category concentration.")
+
+        with eda_tab_actions:
+            if not analytics_df.empty:
+                action_queue = analytics_df.copy()
+                action_queue["Priority"] = np.select(
+                    [
+                        action_queue["stock"] < 0,
+                        action_queue["days_runway"] <= 3,
+                        action_queue["expiry_days"] <= 7,
+                        action_queue["reorder_status"] == "RESTOCK NEEDED"
+                    ],
+                    ["CRITICAL", "CRITICAL", "HIGH", "MEDIUM"],
+                    default="WATCH"
+                )
+                action_queue = action_queue[action_queue["Priority"] != "WATCH"].copy()
+                action_queue = action_queue.sort_values("Priority", key=lambda values: values.map({"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2}))
+                action_columns = ["Priority", "sku", "name", "category", "stock", "days_runway", "expiry_days", "reorder_status", "suggested_po_qty"]
+                action_queue = action_queue[[column for column in action_columns if column in action_queue.columns]].rename(columns={
+                    "days_runway": "Runway Days", "expiry_days": "Expiry Days", "reorder_status": "Status", "suggested_po_qty": "Suggested PO"
+                })
+                if action_queue.empty:
+                    st.success("No immediate inventory exceptions detected.")
+                else:
+                    st.markdown("**Prioritized Exception Watchlist**")
+                    st.dataframe(action_queue.head(25), use_container_width=True, hide_index=True)
+            else:
+                st.info("Connect an inventory catalog to generate an action queue.")
 
 # 5. INVENTORY CATALOG
 elif st.session_state.active_page == "catalog":
