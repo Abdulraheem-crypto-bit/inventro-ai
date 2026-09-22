@@ -2170,38 +2170,113 @@ elif st.session_state.active_page == "pos_scan":
 # 8. PO DISPATCH
 elif st.session_state.active_page == "po_dispatch":
     st.markdown("##### **✉️ Autonomous Purchase Order Dispatch Center**")
+    st.caption("Review replenishment recommendations, adjust quantities, and send an auditable supplier-ready purchase order.")
     if not analytics_df.empty:
         po_items = analytics_df[analytics_df["suggested_po_qty"] > 0]
         if po_items.empty:
             st.success("All inventory lines operating within safety parameters.")
         else:
-            st.warning(f"Restock threshold breached on {len(po_items)} SKU(s).")
-            sel_v = st.selectbox("Group by Supplier", po_items["vendor"].unique())
+            sel_v = st.selectbox("Supplier Order Queue", sorted(po_items["vendor"].astype(str).unique()))
             v_orders = po_items[po_items["vendor"] == sel_v]
             tgt_mail = v_orders["email"].iloc[0] if "email" in v_orders.columns else ""
-            rcpt = st.text_input("Dispatch Recipient Email", value=tgt_mail, placeholder="supplier@domain.com")
-            
-            po_text = f"PURCHASE ORDER: INVENTRO.AI RESTOCK\nSupplier: {sel_v}\nCurrency: {c_code} ({c_sym.strip()})\n" + "-"*50 + "\n"
-            for _, r in v_orders.iterrows():
-                po_text += f"{r['sku']:<12} | {r['name'][:20]:<20} | Stock: {r['stock']} | Order: {r['suggested_po_qty']} units\n"
-            st.text_area("PO Payload Preview", value=po_text, height=180)
-            
-            if st.button("DISPATCH RESTOCK PO", type="primary"):
-                sent, dispatch_msg = dispatch_platform_email(
-                    rcpt,
-                    f"Purchase order for {sel_v}",
-                    po_text,
-                    sender_config={
-                        "smtp_server": "smtp.gmail.com",
-                        "smtp_port": 587,
-                        "smtp_sender": current_user.get("email", "").strip().lower(),
-                        "smtp_password": current_user.get("smtp_password", "")
-                    }
+            if "po_reference" not in st.session_state:
+                st.session_state.po_reference = f"PO-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+
+            po_kpi1, po_kpi2, po_kpi3, po_kpi4 = st.columns(4)
+            po_kpi1.metric("Supplier SKUs", len(v_orders))
+            po_kpi2.metric("Suggested Units", f"{int(v_orders['suggested_po_qty'].sum()):,}")
+            po_kpi3.metric("Current Stock", f"{int(v_orders['stock'].sum()):,}")
+            po_kpi4.metric("Estimated Spend", format_currency(float((v_orders["suggested_po_qty"] * v_orders["price"]).sum())))
+            st.warning(f"Restock threshold breached on {len(po_items)} SKU(s). Review the {len(v_orders)} line(s) queued for {sel_v}.")
+
+            order_grid = v_orders[["sku", "name", "stock", "rop", "price", "suggested_po_qty", "expiry_days"]].copy()
+            order_grid = order_grid.rename(columns={
+                "sku": "SKU", "name": "Product", "stock": "Stock", "rop": "ROP",
+                "price": "Unit Price", "suggested_po_qty": "Order Qty", "expiry_days": "Expiry Days"
+            })
+            order_grid["Order Qty"] = order_grid["Order Qty"].astype(int)
+            st.markdown("**Review Order Quantities**")
+            edited_orders = st.data_editor(
+                order_grid,
+                use_container_width=True,
+                hide_index=True,
+                num_rows="fixed",
+                disabled=["SKU", "Product", "Stock", "ROP", "Unit Price", "Expiry Days"],
+                column_config={
+                    "Order Qty": st.column_config.NumberColumn("Order Qty", min_value=0, step=1, required=True),
+                    "Unit Price": st.column_config.NumberColumn("Unit Price", format="%.2f")
+                },
+                key="po_order_grid"
+            )
+            edited_orders["Order Qty"] = pd.to_numeric(edited_orders["Order Qty"], errors="coerce").fillna(0).clip(lower=0).astype(int)
+            edited_orders["Line Total"] = edited_orders["Order Qty"] * edited_orders["Unit Price"]
+            active_orders = edited_orders[edited_orders["Order Qty"] > 0].copy()
+            order_units = int(active_orders["Order Qty"].sum())
+            order_total = float(active_orders["Line Total"].sum())
+            st.caption(f"{len(active_orders)} active line(s) | {order_units:,} units | Estimated total: {format_currency(order_total)}")
+
+            order_c1, order_c2 = st.columns([1, 1.4])
+            with order_c1:
+                po_reference = st.text_input("PO Reference", value=st.session_state.po_reference)
+                rcpt = st.text_input("Dispatch Recipient Email", value=tgt_mail, placeholder="supplier@domain.com")
+            with order_c2:
+                delivery_note = st.text_input("Supplier Note", value="Please confirm availability and expected delivery date.")
+
+            po_text = (
+                f"PURCHASE ORDER: INVENTRO.AI RESTOCK\nPO Reference: {po_reference.strip()}\n"
+                f"Supplier: {sel_v}\nCurrency: {c_code} ({c_sym.strip()})\n"
+                f"Order Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n" + "-" * 70 + "\n"
+            )
+            for _, row in active_orders.iterrows():
+                po_text += f"{row['SKU']:<14} | {str(row['Product'])[:24]:<24} | Stock: {int(row['Stock']):<5} | Qty: {int(row['Order Qty']):<5} | Total: {format_currency(float(row['Line Total']))}\n"
+            po_text += "-" * 70 + f"\nTOTAL UNITS: {order_units}\nESTIMATED TOTAL: {format_currency(order_total)}\nNOTE: {delivery_note.strip()}\n"
+            st.text_area("PO Payload Preview", value=po_text, height=220)
+
+            download_col, dispatch_col = st.columns([1, 1])
+            with download_col:
+                st.download_button(
+                    "DOWNLOAD PO CSV",
+                    data=active_orders.to_csv(index=False).encode("utf-8"),
+                    file_name=f"{po_reference.strip() or 'purchase_order'}.csv",
+                    mime="text/csv",
+                    disabled=active_orders.empty
                 )
-                if sent:
-                    st.success(f"Purchase order transmitted to {rcpt}!")
+            with dispatch_col:
+                dispatch_clicked = st.button("DISPATCH RESTOCK PO", type="primary", use_container_width=True, disabled=active_orders.empty)
+
+            if dispatch_clicked:
+                if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", rcpt.strip()):
+                    st.error("Enter a valid supplier email address before dispatching.")
+                elif not po_reference.strip():
+                    st.error("Add a PO reference before dispatching.")
                 else:
-                    st.error(dispatch_msg)
+                    sent, dispatch_msg = dispatch_platform_email(
+                        rcpt,
+                        f"Purchase order {po_reference.strip()} for {sel_v}",
+                        po_text,
+                        sender_config={
+                            "smtp_server": "smtp.gmail.com",
+                            "smtp_port": 587,
+                            "smtp_sender": current_user.get("email", "").strip().lower(),
+                            "smtp_password": current_user.get("smtp_password", "")
+                        }
+                    )
+                    if sent:
+                        if "po_dispatch_history" not in st.session_state:
+                            st.session_state.po_dispatch_history = []
+                        st.session_state.po_dispatch_history.insert(0, {
+                            "PO Reference": po_reference.strip(), "Supplier": sel_v,
+                            "Units": order_units, "Total": format_currency(order_total),
+                            "Recipient": rcpt.strip(), "Time": datetime.now().strftime("%Y-%m-%d %H:%M")
+                        })
+                        st.session_state.po_reference = f"PO-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+                        st.success(f"Purchase order {po_reference.strip()} transmitted to {rcpt}!")
+                    else:
+                        st.error(dispatch_msg)
+
+            if st.session_state.get("po_dispatch_history"):
+                st.markdown("**Recent Dispatch History**")
+                st.dataframe(pd.DataFrame(st.session_state.po_dispatch_history).head(10), use_container_width=True, hide_index=True)
     else:
         st.info("Database not connected.")
 
