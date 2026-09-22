@@ -157,6 +157,21 @@ code, pre, .stCode {
     100% { top: 82%; opacity: 0; }
 }
 
+@keyframes copilotRadar {
+    0% { transform: scale(0.35); opacity: 0.75; }
+    100% { transform: scale(1.7); opacity: 0; }
+}
+
+@keyframes copilotSignal {
+    0%, 100% { height: 8px; opacity: 0.45; }
+    50% { height: 24px; opacity: 1; }
+}
+
+@keyframes copilotTextPulse {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+}
+
 .copilot-stage {
     min-height: 178px;
     border: 1px solid rgba(0, 178, 255, 0.25);
@@ -168,6 +183,25 @@ code, pre, .stCode {
     align-items: center;
     justify-content: center;
 }
+
+.copilot-radar {
+    position: absolute;
+    width: 76px;
+    height: 76px;
+    border: 1px solid rgba(0, 227, 150, 0.58);
+    border-radius: 50%;
+    animation: copilotRadar 2.8s ease-out infinite;
+}
+
+.copilot-radar::before, .copilot-radar::after {
+    content: "";
+    position: absolute;
+    inset: 15px;
+    border: 1px solid rgba(0, 178, 255, 0.38);
+    border-radius: 50%;
+}
+
+.copilot-radar::after { inset: 30px; border-color: rgba(254, 176, 25, 0.45); }
 
 .copilot-stage::after {
     content: "";
@@ -236,6 +270,50 @@ code, pre, .stCode {
     font-size: 0.72rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+}
+
+.copilot-signals {
+    position: absolute;
+    right: 18px;
+    top: 18px;
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 24px;
+}
+
+.copilot-signals span {
+    width: 4px;
+    height: 10px;
+    border-radius: 3px;
+    background: #00E396;
+    box-shadow: 0 0 8px rgba(0, 227, 150, 0.7);
+    animation: copilotSignal 1.2s ease-in-out infinite;
+}
+
+.copilot-signals span:nth-child(2) { animation-delay: 0.15s; }
+.copilot-signals span:nth-child(3) { animation-delay: 0.3s; }
+.copilot-signals span:nth-child(4) { animation-delay: 0.45s; }
+
+.copilot-stage-label {
+    position: absolute;
+    top: 16px;
+    left: 18px;
+    color: #8E9BAE;
+    font-size: 0.66rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    animation: copilotTextPulse 2s ease-in-out infinite;
+}
+
+.copilot-stage-footer {
+    position: absolute;
+    bottom: 32px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: #CBD5E1;
+    font-size: 0.68rem;
 }
 
 .auth-header-anim {
@@ -1723,8 +1801,12 @@ elif st.session_state.active_page == "ai_copilot":
         with copilot_stage_col:
             st.markdown("""
                 <div class='copilot-stage'>
+                    <div class='copilot-stage-label'>LIVE INFERENCE / 04</div>
+                    <div class='copilot-signals'><span></span><span></span><span></span><span></span></div>
+                    <div class='copilot-radar'></div>
                     <div class='copilot-orbit'></div>
                     <div class='copilot-core'></div>
+                    <div class='copilot-stage-footer'>Signal integrity 98% · anomaly model ready</div>
                     <div class='copilot-status'>Luna online · scanning fleet</div>
                 </div>
             """, unsafe_allow_html=True)
