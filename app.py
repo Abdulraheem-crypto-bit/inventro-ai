@@ -1814,20 +1814,95 @@ elif st.session_state.active_page == "eda_report":
 # 5. INVENTORY CATALOG
 elif st.session_state.active_page == "catalog":
     st.markdown("##### **📦 Real-Time Catalog & ABC-XYZ Pareto Matrix**")
+    st.caption("Search, segment, and export the live catalog using stock health, demand velocity, and replenishment signals.")
     if non_inventory_warning:
         st.warning("⚠️ Connected database contains tables, but none match a predictive retail inventory schema (e.g., employee or payroll records detected). Only stock datasets are ingested into predictive analytics.")
 
     if not analytics_df.empty:
-        search_q = st.text_input("Filter Catalog by Name, SKU, or Category:", placeholder="Search catalog...")
         filtered_df = analytics_df.copy()
+        filtered_df["inventory_value"] = filtered_df["stock"] * filtered_df["price"]
+        filtered_df["catalog_risk"] = np.select(
+            [
+                filtered_df["stock"] < 0,
+                filtered_df["days_runway"] <= 3,
+                filtered_df["expiry_days"] <= 7,
+                filtered_df["reorder_status"] == "RESTOCK NEEDED"
+            ],
+            ["CRITICAL STOCK", "CRITICAL RUNWAY", "EXPIRY ALERT", "RESTOCK"],
+            default="HEALTHY"
+        )
+
+        catalog_kpi1, catalog_kpi2, catalog_kpi3, catalog_kpi4, catalog_kpi5 = st.columns(5)
+        catalog_kpi1.metric("SKUs", len(filtered_df))
+        catalog_kpi2.metric("Units on Hand", f"{int(filtered_df['stock'].sum()):,}")
+        catalog_kpi3.metric("Inventory Value", format_currency(float(filtered_df["inventory_value"].sum())))
+        catalog_kpi4.metric("Restock Required", int((filtered_df["reorder_status"] == "RESTOCK NEEDED").sum()))
+        catalog_kpi5.metric("Expiry Alerts", int((filtered_df["expiry_days"] <= 7).sum()))
+
+        filter_col1, filter_col2, filter_col3 = st.columns([1.4, 1, 1])
+        with filter_col1:
+            search_q = st.text_input("Search catalog", placeholder="Product, SKU, category, or vendor...")
+        with filter_col2:
+            quick_view = st.selectbox("Quick View", [
+                "All Products", "Needs Restock", "Critical Runway (≤ 3 Days)",
+                "Expiry Alerts (≤ 7 Days)", "Class-A Products", "Healthy Products"
+            ])
+        with filter_col3:
+            sort_by = st.selectbox("Sort By", [
+                "Priority", "Units Sold", "Stock Level", "Runway", "Inventory Value", "Product Name"
+            ])
+
         if search_q:
             filtered_df = filtered_df[
-                filtered_df["name"].str.contains(search_q, case=False, na=False) |
-                filtered_df["sku"].str.contains(search_q, case=False, na=False) |
-                filtered_df["category"].str.contains(search_q, case=False, na=False)
+                filtered_df["name"].astype(str).str.contains(search_q, case=False, na=False) |
+                filtered_df["sku"].astype(str).str.contains(search_q, case=False, na=False) |
+                filtered_df["category"].astype(str).str.contains(search_q, case=False, na=False) |
+                filtered_df["vendor"].astype(str).str.contains(search_q, case=False, na=False)
             ]
-        cols_show = ["sku", "name", "category", "stock", "lead_time", "daily_velocity", "rop", "days_runway", "reorder_status", "abc_class", "suggested_po_qty", "vendor"]
-        st.dataframe(filtered_df[[c for c in cols_show if c in filtered_df.columns]], use_container_width=True, hide_index=True)
+
+        if quick_view == "Needs Restock":
+            filtered_df = filtered_df[filtered_df["reorder_status"] == "RESTOCK NEEDED"]
+        elif quick_view == "Critical Runway (≤ 3 Days)":
+            filtered_df = filtered_df[filtered_df["days_runway"] <= 3]
+        elif quick_view == "Expiry Alerts (≤ 7 Days)":
+            filtered_df = filtered_df[filtered_df["expiry_days"] <= 7]
+        elif quick_view == "Class-A Products":
+            filtered_df = filtered_df[filtered_df["abc_class"] == "A"]
+        elif quick_view == "Healthy Products":
+            filtered_df = filtered_df[filtered_df["reorder_status"] == "HEALTHY"]
+
+        if sort_by == "Priority":
+            priority_order = {"CRITICAL STOCK": 0, "CRITICAL RUNWAY": 1, "EXPIRY ALERT": 2, "RESTOCK": 3, "HEALTHY": 4}
+            filtered_df = filtered_df.sort_values("catalog_risk", key=lambda values: values.map(priority_order))
+        elif sort_by == "Units Sold":
+            filtered_df = filtered_df.sort_values("total_sold", ascending=False)
+        elif sort_by == "Stock Level":
+            filtered_df = filtered_df.sort_values("stock")
+        elif sort_by == "Runway":
+            filtered_df = filtered_df.sort_values("days_runway")
+        elif sort_by == "Inventory Value":
+            filtered_df = filtered_df.sort_values("inventory_value", ascending=False)
+        else:
+            filtered_df = filtered_df.sort_values("name")
+
+        st.caption(f"Showing {len(filtered_df)} matching product(s) from {len(analytics_df)} total SKU(s).")
+        cols_show = ["catalog_risk", "sku", "name", "category", "stock", "inventory_value", "daily_velocity", "total_sold", "rop", "days_runway", "reorder_status", "expiry_days", "abc_class", "suggested_po_qty", "vendor"]
+        display_catalog = filtered_df[[column for column in cols_show if column in filtered_df.columns]].rename(columns={
+            "catalog_risk": "Risk", "sku": "SKU", "name": "Product", "category": "Category",
+            "stock": "Stock", "inventory_value": "Inventory Value", "daily_velocity": "Units/Day",
+            "total_sold": "Total Sold", "rop": "ROP", "days_runway": "Runway Days",
+            "reorder_status": "Status", "expiry_days": "Expiry Days", "abc_class": "ABC",
+            "suggested_po_qty": "Suggested PO", "vendor": "Vendor"
+        }).copy()
+        if "Inventory Value" in display_catalog.columns:
+            display_catalog["Inventory Value"] = display_catalog["Inventory Value"].map(format_currency)
+        st.dataframe(display_catalog, use_container_width=True, hide_index=True)
+        st.download_button(
+            "DOWNLOAD CATALOG CSV",
+            data=display_catalog.to_csv(index=False).encode("utf-8"),
+            file_name="inventory_catalog.csv",
+            mime="text/csv"
+        )
     else:
         st.info("No catalog data online.")
 
