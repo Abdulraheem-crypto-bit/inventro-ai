@@ -2026,36 +2026,95 @@ elif st.session_state.active_page == "risk_gov":
 # 7. POS SCAN INTAKE
 elif st.session_state.active_page == "pos_scan":
     st.markdown("##### **⚡ Point-of-Sale Checkout & Receiving Terminal**")
+    st.caption("Process sales, receipts, and write-offs with a live stock preview and an auditable movement trail.")
     if not analytics_df.empty:
+        if "pos_session_transactions" not in st.session_state:
+            st.session_state.pos_session_transactions = []
+
+        session_transactions = st.session_state.pos_session_transactions
+        session_units = sum(item["units"] for item in session_transactions)
+        session_sales = sum(item["units"] for item in session_transactions if item["type"] == "POS_SCAN")
+        session_receipts = sum(item["units"] for item in session_transactions if item["type"] == "STOCK_IN")
+        session_writeoffs = sum(item["units"] for item in session_transactions if item["type"] == "STOCK_OUT")
+        session_col1, session_col2, session_col3, session_col4 = st.columns(4)
+        session_col1.metric("Session Movements", len(session_transactions))
+        session_col2.metric("Units Processed", f"{session_units:,}")
+        session_col3.metric("Units Sold", f"{session_sales:,}")
+        session_col4.metric("Units Received", f"{session_receipts:,}")
+
         p_col1, p_col2 = st.columns([1, 1.4])
         with p_col1:
-            selected_sku = st.selectbox("Scan or Select SKU / Barcode", analytics_df["sku"].tolist())
+            search_sku = st.text_input("Scan or search product", placeholder="Enter SKU, barcode, name, or category...")
+            sku_options = analytics_df["sku"].tolist()
+            if search_sku:
+                search_mask = (
+                    analytics_df["sku"].astype(str).str.contains(search_sku, case=False, na=False) |
+                    analytics_df["name"].astype(str).str.contains(search_sku, case=False, na=False) |
+                    analytics_df["category"].astype(str).str.contains(search_sku, case=False, na=False)
+                )
+                sku_options = analytics_df.loc[search_mask, "sku"].tolist()
+
+            if not sku_options:
+                st.warning("No catalog item matches that search.")
+                st.stop()
+
+            selected_sku = st.selectbox(
+                "Select matching SKU",
+                sku_options,
+                format_func=lambda sku: f"{sku} · {analytics_df.loc[analytics_df['sku'] == sku, 'name'].iloc[0]}"
+            )
             sku_row = analytics_df[analytics_df["sku"] == selected_sku].iloc[0]
             action = st.radio("Movement Operation:", ["📥 Stock IN (Receive)", "⚡ POS Checkout (Sale)", "📤 Stock OUT (Write-off)"], horizontal=True)
             units = st.number_input("Unit Count", min_value=1, step=1, value=1)
-            
-            st.markdown(f"**Item:** `{sku_row['name']}` | **Current Stock:** `{sku_row['stock']}` | **ROP:** `{sku_row['rop']}`")
+            movement_note = st.text_input(
+                "Operator Note",
+                value="Live register checkout" if "POS Checkout" in action else "Intake delivery" if "Stock IN" in action else "Inventory write-off / damage",
+                help="This note is saved with the stock movement for audit history."
+            )
+
+            current_stock = int(sku_row["stock"])
+            signed_units = int(units) if "Stock IN" in action else -int(units)
+            projected_stock = current_stock + signed_units
+            projected_status = "RESTOCK NEEDED" if projected_stock <= int(sku_row["rop"]) else "HEALTHY"
+            st.markdown(f"**Item:** `{sku_row['name']}` | **Current Stock:** `{current_stock}` | **ROP:** `{sku_row['rop']}`")
+            preview_col1, preview_col2, preview_col3 = st.columns(3)
+            preview_col1.metric("Stock After", projected_stock, signed_units)
+            preview_col2.metric("Projected Status", projected_status)
+            preview_col3.metric("Unit Value", format_currency(float(sku_row["price"])))
+
+            if "Stock IN" in action:
+                st.info(f"Receiving {int(units)} unit(s) will raise available stock to {projected_stock}.")
+            elif projected_stock < 0:
+                st.error("This movement would create negative stock. Reduce the quantity before committing.")
+            elif "POS Checkout" in action and projected_stock <= int(sku_row["rop"]):
+                st.warning("This checkout will place the item at or below its reorder point.")
 
             if st.button("COMMIT TRANSACTION TO DB", type="primary", use_container_width=True):
-                if is_connected:
+                if not is_connected:
+                    st.error("Database connection offline.")
+                elif "Stock IN" not in action and projected_stock < 0:
+                    st.error("Transaction blocked: available stock is insufficient.")
+                else:
                     try:
                         stock_col = prod_map.get("stock", "stock")
                         sku_col = prod_map.get("sku", "sku")
+                        quoted_table = engine.dialect.identifier_preparer.quote(detected_product_table)
+                        quoted_stock_col = engine.dialect.identifier_preparer.quote(stock_col)
+                        quoted_sku_col = engine.dialect.identifier_preparer.quote(sku_col)
+                        movement_type = "STOCK_IN" if "Stock IN" in action else "POS_SCAN" if "POS Checkout" in action else "STOCK_OUT"
+                        committed = False
                         with engine.begin() as conn:
                             if "Stock IN" in action:
                                 conn.execute(
-                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} + :qty WHERE {sku_col} = :sku"),
+                                    text(f"UPDATE {quoted_table} SET {quoted_stock_col} = {quoted_stock_col} + :qty WHERE {quoted_sku_col} = :sku"),
                                     {"qty": units, "sku": selected_sku}
                                 )
-                                conn.execute(
-                                    text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'STOCK_IN', :qty, 'Intake delivery')"),
-                                    {"ts": datetime.now(), "sku": selected_sku, "qty": units}
-                                )
+                                committed = True
                                 st.toast(f"Committed +{units}x {sku_row['name']}", icon="📥")
 
                             elif "POS Checkout" in action:
                                 res = conn.execute(
-                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku AND {stock_col} >= :qty"),
+                                    text(f"UPDATE {quoted_table} SET {quoted_stock_col} = {quoted_stock_col} - :qty WHERE {quoted_sku_col} = :sku AND {quoted_stock_col} >= :qty"),
                                     {"qty": units, "sku": selected_sku}
                                 )
                                 if res.rowcount == 0:
@@ -2065,35 +2124,46 @@ elif st.session_state.active_page == "pos_scan":
                                         text("INSERT INTO sales_ledger (transaction_date, sku, product_name, category, quantity_sold, is_weekend) VALUES (:tdate, :sku, :name, :cat, :qty, :wkd)"),
                                         {"tdate": datetime.now(), "sku": selected_sku, "name": sku_row["name"], "cat": sku_row["category"], "qty": units, "wkd": 1 if datetime.now().weekday() >= 5 else 0}
                                     )
-                                    conn.execute(
-                                        text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'POS_SCAN', :qty, 'Live register checkout')"),
-                                        {"ts": datetime.now(), "sku": selected_sku, "qty": -units}
-                                    )
+                                    committed = True
                                     st.toast(f"Sold -{units}x {sku_row['name']}", icon="🛒")
 
                             elif "Stock OUT" in action:
                                 res = conn.execute(
-                                    text(f"UPDATE products_master SET {stock_col} = {stock_col} - :qty WHERE {sku_col} = :sku AND {stock_col} >= :qty"),
+                                    text(f"UPDATE {quoted_table} SET {quoted_stock_col} = {quoted_stock_col} - :qty WHERE {quoted_sku_col} = :sku AND {quoted_stock_col} >= :qty"),
                                     {"qty": units, "sku": selected_sku}
                                 )
                                 if res.rowcount == 0:
                                     st.error("Write-Off Aborted: Available stock is insufficient to write off this quantity!")
                                 else:
-                                    conn.execute(
-                                        text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, 'STOCK_OUT (Write-Off)', :qty, 'Inventory write-off / damage')"),
-                                        {"ts": datetime.now(), "sku": selected_sku, "qty": -units}
-                                    )
+                                    committed = True
                                     st.toast(f"Written off -{units}x {sku_row['name']}", icon="📤")
 
-                        st.rerun()
+                            if committed:
+                                conn.execute(
+                                    text("INSERT INTO stock_movements (movement_timestamp, sku, movement_type, quantity, notes) VALUES (:ts, :sku, :movement_type, :qty, :notes)"),
+                                    {"ts": datetime.now(), "sku": selected_sku, "movement_type": movement_type, "qty": signed_units, "notes": movement_note.strip() or "Operator movement"}
+                                )
+
+                        if committed:
+                            st.session_state.pos_session_transactions.append({
+                                "sku": selected_sku, "name": sku_row["name"], "type": movement_type, "units": int(units), "timestamp": datetime.now().strftime("%H:%M:%S")
+                            })
+                            st.rerun()
                     except Exception as err:
                         st.error(f"Transaction failed: {err}")
-                else:
-                    st.error("Database connection offline.")
         with p_col2:
             st.markdown("**Live Movements Log**")
             if not raw_movements.empty:
                 st.dataframe(raw_movements.head(8), use_container_width=True, hide_index=True)
+            if session_transactions:
+                st.markdown("**This Session**")
+                session_view = pd.DataFrame(session_transactions).rename(columns={
+                    "timestamp": "Time", "sku": "SKU", "name": "Product", "type": "Movement", "units": "Units"
+                })
+                st.dataframe(session_view[["Time", "SKU", "Product", "Movement", "Units"]], use_container_width=True, hide_index=True)
+                if st.button("CLEAR SESSION SUMMARY"):
+                    st.session_state.pos_session_transactions = []
+                    st.rerun()
     else:
         st.info("No active catalog available.")
 
