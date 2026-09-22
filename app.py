@@ -1158,17 +1158,17 @@ with st.sidebar:
     st.markdown("<p style='font-size: 0.7rem; font-weight: 800; color: #8E9BAE; letter-spacing: 0.08em; margin-bottom: 6px;'>NAVIGATION PAGES</p>", unsafe_allow_html=True)
 
     PAGES_LIST = [
-        ("📊 Dashboard Overview", "dashboard"),
-        ("🤖 AI Copilot Agent", "ai_copilot"),
-        ("📋 Recent Transactions", "recent_tx"),
-        ("🔬 Data Report (EDA)", "eda_report"),
-        ("📦 Inventory Catalog", "catalog"),
+        ("📊 Command Center", "dashboard"),
+        ("🤖 Luna AI Copilot", "ai_copilot"),
+        ("📋 Sales & Transactions", "recent_tx"),
+        ("🔬 Data Intelligence", "eda_report"),
+        ("📦 Inventory Command", "catalog"),
         ("🛡️ Risk & Governance", "risk_gov"),
-        ("⚡ POS Scan & Intake", "pos_scan"),
-        ("✉️ PO Dispatch", "po_dispatch"),
-        ("🔌 DB Terminal", "db_terminal"),
-        ("💬 Help & Support", "support"),
-        ("👤 Profile & Vault", "profile")
+        ("⚡ POS Operations", "pos_scan"),
+        ("✉️ Purchase Orders", "po_dispatch"),
+        ("🔌 Database Terminal", "db_terminal"),
+        ("💬 Help Desk", "support"),
+        ("👤 Operator Profile", "profile")
     ]
 
     for label, page_id in PAGES_LIST:
@@ -1787,7 +1787,7 @@ if st.session_state.active_page == "dashboard":
 
 # 2. DEDICATED AI COPILOT PAGE
 elif st.session_state.active_page == "ai_copilot":
-    st.markdown("##### **🤖 Autonomous AI Supply Agent & Copilot**")
+    st.markdown("##### **🤖 Luna AI Copilot**")
     st.caption(f"Real-time diagnostic loop evaluating stock levels, buffer breaches, and supplier risks in {c_code} ({c_sym.strip()}).")
 
     if analytics_df.empty:
@@ -1866,7 +1866,7 @@ elif st.session_state.active_page == "ai_copilot":
 
 # 3. RECENT TRANSACTIONS
 elif st.session_state.active_page == "recent_tx":
-    st.markdown("##### **📋 Daily Sales & Recent Transactions**")
+    st.markdown("##### **📋 Sales & Transactions**")
 
     sales_view = df_sales.copy()
     if not sales_view.empty and "transaction_date" in sales_view.columns:
@@ -1990,7 +1990,7 @@ elif st.session_state.active_page == "recent_tx":
 
 # 4. DATA REPORT (EDA)
 elif st.session_state.active_page == "eda_report":
-    st.markdown("##### **🔬 14-Point Automated Statistical EDA Telemetry**")
+    st.markdown("##### **🔬 Data Intelligence & EDA**")
     st.caption("A decision view of catalog quality, sales behavior, inventory concentration, and exceptions requiring attention.")
     if not eda_results:
         st.info("Awaiting live database connection to compile exploratory audit.")
@@ -2097,7 +2097,7 @@ elif st.session_state.active_page == "eda_report":
 
 # 5. INVENTORY CATALOG
 elif st.session_state.active_page == "catalog":
-    st.markdown("##### **📦 Real-Time Catalog & ABC-XYZ Pareto Matrix**")
+    st.markdown("##### **📦 Inventory Command**")
     st.caption("Search, segment, and export the live catalog using stock health, demand velocity, and replenishment signals.")
     if non_inventory_warning:
         st.warning("⚠️ Connected database contains tables, but none match a predictive retail inventory schema (e.g., employee or payroll records detected). Only stock datasets are ingested into predictive analytics.")
@@ -2309,7 +2309,7 @@ elif st.session_state.active_page == "risk_gov":
 
 # 7. POS SCAN INTAKE
 elif st.session_state.active_page == "pos_scan":
-    st.markdown("##### **⚡ Point-of-Sale Checkout & Receiving Terminal**")
+    st.markdown("##### **⚡ POS Operations & Intake**")
     st.caption("Process sales, receipts, and write-offs with a live stock preview and an auditable movement trail.")
     if not analytics_df.empty:
         if "pos_session_transactions" not in st.session_state:
@@ -2453,7 +2453,7 @@ elif st.session_state.active_page == "pos_scan":
 
 # 8. PO DISPATCH
 elif st.session_state.active_page == "po_dispatch":
-    st.markdown("##### **✉️ Autonomous Purchase Order Dispatch Center**")
+    st.markdown("##### **✉️ Purchase Order Command Center**")
     st.caption("Review replenishment recommendations, adjust quantities, and send an auditable supplier-ready purchase order.")
     if not analytics_df.empty:
         po_items = analytics_df[analytics_df["suggested_po_qty"] > 0]
@@ -2566,7 +2566,7 @@ elif st.session_state.active_page == "po_dispatch":
 
 # 9. DB TERMINAL
 elif st.session_state.active_page == "db_terminal":
-    st.markdown("##### **🔌 Relational Schema Provisioning & Direct SQL Terminal**")
+    st.markdown("##### **🔌 Database Terminal & Schema Tools**")
     i_c1, i_c2 = st.columns([1, 1.2])
 
     with i_c1:
@@ -2663,7 +2663,7 @@ elif st.session_state.active_page == "db_terminal":
 
 # 10. HELP & SUPPORT (TICKET INGESTION)
 elif st.session_state.active_page == "support":
-    st.markdown("##### **💬 Operator Help Desk & System Support**")
+    st.markdown("##### **💬 Operator Help Desk**")
     st.caption("Submit operational bugs, calculation issues, or DB anomalies directly to the engineering team.")
 
     sup_col1, sup_col2 = st.columns([1.3, 1.0])
@@ -2772,7 +2772,7 @@ elif st.session_state.active_page == "support":
 
 # 11. PROFILE & VAULT
 elif st.session_state.active_page == "profile":
-    st.markdown("##### **👤 Operator Profile & Encrypted Vault**")
+    st.markdown("##### **👤 Operator Profile & Vault**")
     st.caption("Manage regional currency localization and personal database connection strings.")
 
     prof_c1, prof_c2 = st.columns([1.2, 1.2])
