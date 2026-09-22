@@ -1909,32 +1909,119 @@ elif st.session_state.active_page == "catalog":
 # 6. RISK AND GOVERNANCE
 elif st.session_state.active_page == "risk_gov":
     st.markdown("##### **🛡️ Autonomous Risk & Compliance Radar**")
-    st.caption("Heuristic detection of lead-time variances, stockout vulnerability, and cold-chain perishability.")
+    st.caption("Live risk scoring for stockout exposure, shelf-life decay, supplier concentration, and data governance exceptions.")
 
-    col_g1, col_g2, col_g3, col_g4 = st.columns(4)
-    col_g1.metric("Compliance Rating", "98/100", "+2 pts")
-    col_g2.metric("Critical Stockout Risks", restock_needed, "-1 resolving")
-    col_g3.metric("Shelf-Life Decay Alerts", perish_alert, "Action required")
-    col_g4.metric("Vendor Reliability Score", "96.4%", "Stable")
+    if analytics_df.empty:
+        st.info("Connect an inventory catalog to activate the risk radar.")
+    else:
+        risk_df = analytics_df.copy()
+        risk_df["inventory_value"] = risk_df["stock"] * risk_df["price"]
+        risk_df["risk_score"] = (
+            np.where(risk_df["stock"] <= risk_df["rop"], 35, 0) +
+            np.where(risk_df["days_runway"] <= 3, 30, np.where(risk_df["days_runway"] <= 7, 18, 0)) +
+            np.where(risk_df["expiry_days"] <= 7, 20, np.where(risk_df["expiry_days"] <= 14, 10, 0)) +
+            np.where(risk_df["lead_time"] >= 7, 15, np.where(risk_df["lead_time"] >= 4, 8, 0))
+        ).clip(0, 100)
+        risk_df["risk_level"] = np.select(
+            [risk_df["risk_score"] >= 70, risk_df["risk_score"] >= 40, risk_df["risk_score"] > 0],
+            ["CRITICAL", "HIGH", "WATCH"],
+            default="LOW"
+        )
 
-    st.divider()
-    r_col1, r_col2 = st.columns([1.2, 1])
+        critical_value = float(risk_df.loc[risk_df["risk_level"] == "CRITICAL", "inventory_value"].sum())
+        expiry_value = float(risk_df.loc[risk_df["expiry_days"] <= 14, "inventory_value"].sum())
+        weighted_risk = float(risk_df["risk_score"].mean())
+        vendor_count = int(risk_df["vendor"].nunique())
+        governance_issues = len(eda_results.get("data_quality", [])) + eda_results.get("duplicates", {}).get("duplicate_skus", 0)
+        compliance_score = max(0, int(100 - min(60, governance_issues * 10) - min(25, int((risk_df["risk_level"] == "CRITICAL").sum() * 3))))
 
-    with r_col1:
-        st.markdown("**Perishability Horizon Breakdown**")
-        if not analytics_df.empty:
-            perish_items = analytics_df[analytics_df["expiry_days"] <= 14][["sku", "name", "category", "stock", "expiry_days", "vendor"]]
-            if not perish_items.empty:
-                st.dataframe(perish_items, use_container_width=True, hide_index=True)
+        col_g1, col_g2, col_g3, col_g4, col_g5 = st.columns(5)
+        col_g1.metric("Compliance Score", f"{compliance_score}/100")
+        col_g2.metric("Average Risk", f"{weighted_risk:.1f}/100")
+        col_g3.metric("Critical SKUs", int((risk_df["risk_level"] == "CRITICAL").sum()))
+        col_g4.metric("Critical Exposure", format_currency(critical_value))
+        col_g5.metric("Expiry Exposure", format_currency(expiry_value))
+
+        st.divider()
+        risk_tab_radar, risk_tab_register, risk_tab_vendors, risk_tab_controls = st.tabs([
+            "Risk Radar", "SKU Risk Register", "Supplier Resilience", "Governance Controls"
+        ])
+
+        with risk_tab_radar:
+            radar_col1, radar_col2 = st.columns([1.1, 1.4])
+            with radar_col1:
+                st.markdown("**Risk Distribution**")
+                risk_distribution = risk_df["risk_level"].value_counts().reindex(
+                    ["CRITICAL", "HIGH", "WATCH", "LOW"], fill_value=0
+                ).rename_axis("Risk Level").reset_index(name="SKUs")
+                st.dataframe(risk_distribution, use_container_width=True, hide_index=True)
+                st.markdown("**Scoring Model**")
+                st.caption("Stockout: 35 points | Runway: 18–30 points | Expiry: 10–20 points | Lead time: 8–15 points")
+            with radar_col2:
+                st.markdown("**Highest-Exposure Items**")
+                exposure_view = risk_df.sort_values(["risk_score", "inventory_value"], ascending=[False, False]).head(10)
+                exposure_view = exposure_view[["risk_level", "risk_score", "sku", "name", "stock", "days_runway", "expiry_days", "inventory_value"]].rename(columns={
+                    "risk_level": "Risk", "risk_score": "Score", "sku": "SKU", "name": "Product",
+                    "stock": "Stock", "days_runway": "Runway", "expiry_days": "Expiry Days", "inventory_value": "Exposure"
+                })
+                exposure_view["Exposure"] = exposure_view["Exposure"].map(format_currency)
+                st.dataframe(exposure_view, use_container_width=True, hide_index=True)
+
+        with risk_tab_register:
+            selected_risk = st.multiselect(
+                "Show risk levels",
+                ["CRITICAL", "HIGH", "WATCH", "LOW"],
+                default=["CRITICAL", "HIGH", "WATCH"]
+            )
+            register = risk_df[risk_df["risk_level"].isin(selected_risk)].copy()
+            register = register.sort_values(["risk_score", "days_runway"], ascending=[False, True])
+            register_columns = ["risk_level", "risk_score", "sku", "name", "category", "vendor", "stock", "rop", "days_runway", "expiry_days", "lead_time", "suggested_po_qty"]
+            register = register[[column for column in register_columns if column in register.columns]].rename(columns={
+                "risk_level": "Risk", "risk_score": "Score", "sku": "SKU", "name": "Product",
+                "category": "Category", "vendor": "Supplier", "stock": "Stock", "rop": "ROP",
+                "days_runway": "Runway Days", "expiry_days": "Expiry Days", "lead_time": "Lead Days",
+                "suggested_po_qty": "Suggested PO"
+            })
+            st.caption(f"Showing {len(register)} risk register item(s).")
+            st.dataframe(register, use_container_width=True, hide_index=True)
+            st.download_button(
+                "DOWNLOAD RISK REGISTER CSV",
+                data=register.to_csv(index=False).encode("utf-8"),
+                file_name="risk_register.csv",
+                mime="text/csv"
+            )
+
+        with risk_tab_vendors:
+            vendor_summary = risk_df.groupby("vendor").agg(
+                SKUs=("sku", "nunique"), Avg_Lead_Days=("lead_time", "mean"),
+                Critical_SKUs=("risk_level", lambda values: (values == "CRITICAL").sum()),
+                Risk_SKUs=("risk_level", lambda values: (values.isin(["CRITICAL", "HIGH"])).sum()),
+                Inventory_Value=("inventory_value", "sum")
+            ).reset_index().sort_values(["Critical_SKUs", "Risk_SKUs", "Inventory_Value"], ascending=False)
+            vendor_summary["Avg_Lead_Days"] = vendor_summary["Avg_Lead_Days"].round(1)
+            vendor_summary["Inventory_Value"] = vendor_summary["Inventory_Value"].map(format_currency)
+            vendor_summary = vendor_summary.rename(columns={
+                "vendor": "Supplier", "Avg_Lead_Days": "Avg Lead Days", "Critical_SKUs": "Critical SKUs",
+                "Risk_SKUs": "Risk SKUs", "Inventory_Value": "Inventory Value"
+            })
+            st.markdown("**Supplier Resilience Watch**")
+            st.caption(f"Monitoring {vendor_count} supplier(s). Prioritize suppliers with high-risk SKUs and long lead times.")
+            st.dataframe(vendor_summary, use_container_width=True, hide_index=True)
+
+        with risk_tab_controls:
+            controls = [
+                {"Control": "Duplicate SKU check", "Status": "PASS" if eda_results.get("duplicates", {}).get("duplicate_skus", 0) == 0 else "REVIEW", "Evidence": eda_results.get("duplicates", {}).get("duplicate_skus", 0)},
+                {"Control": "Negative stock check", "Status": "PASS" if not (risk_df["stock"] < 0).any() else "FAIL", "Evidence": int((risk_df["stock"] < 0).sum())},
+                {"Control": "Expiry horizon check", "Status": "PASS" if not (risk_df["expiry_days"] <= 7).any() else "REVIEW", "Evidence": int((risk_df["expiry_days"] <= 7).sum())},
+                {"Control": "Reorder policy coverage", "Status": "PASS" if (risk_df["rop"] > 0).all() else "REVIEW", "Evidence": int((risk_df["rop"] <= 0).sum())},
+                {"Control": "Sales date quality", "Status": "PASS" if not any("invalid transaction dates" in issue for issue in eda_results.get("data_quality", [])) else "REVIEW", "Evidence": eda_results.get("overview", {}).get("sales_ledger_rows", 0)}
+            ]
+            st.markdown("**Governance Control Center**")
+            st.dataframe(pd.DataFrame(controls), use_container_width=True, hide_index=True)
+            if governance_issues:
+                st.warning(f"{governance_issues} governance exception(s) require review in the EDA report.")
             else:
-                st.success("✨ Zero items within critical 14-day expiration window.")
-
-    with r_col2:
-        st.markdown("**Vendor SLA Compliance Watch**")
-        if not analytics_df.empty:
-            vendor_lead_times = analytics_df.groupby("vendor")["lead_time"].mean().reset_index()
-            vendor_lead_times.columns = ["Supplier", "Avg Turnaround (Days)"]
-            st.dataframe(vendor_lead_times, use_container_width=True, hide_index=True)
+                st.success("All automated governance checks are currently passing.")
 
 # 7. POS SCAN INTAKE
 elif st.session_state.active_page == "pos_scan":
