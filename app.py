@@ -1490,6 +1490,11 @@ if st.session_state.active_page == "dashboard":
     dashboard_stockout_exposure = float(
         (analytics_df.loc[analytics_df["days_runway"] <= 7, "stock"] * analytics_df.loc[analytics_df["days_runway"] <= 7, "price"]).sum()
     ) if not analytics_df.empty else 0.0
+    critical_runway = int((analytics_df["days_runway"] <= 7).sum()) if not analytics_df.empty else 0
+    expiry_value = float(
+        (analytics_df.loc[analytics_df["expiry_risk"] == "HIGH EXPIRY RISK", "stock"] *
+         analytics_df.loc[analytics_df["expiry_risk"] == "HIGH EXPIRY RISK", "price"]).sum()
+    ) if not analytics_df.empty else 0.0
 
     st.markdown("#### **Executive Control Room**")
     control_c1, control_c2, control_c3, control_c4 = st.columns(4)
