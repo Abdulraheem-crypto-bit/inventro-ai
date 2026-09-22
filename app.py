@@ -140,6 +140,104 @@ code, pre, .stCode {
     100% { transform: translateX(100%); }
 }
 
+@keyframes copilotBreathe {
+    0%, 100% { transform: scale(0.96); box-shadow: 0 0 18px rgba(0, 178, 255, 0.22), inset 0 0 14px rgba(255, 255, 255, 0.18); }
+    50% { transform: scale(1.06); box-shadow: 0 0 34px rgba(0, 178, 255, 0.6), 0 0 70px rgba(0, 178, 255, 0.18), inset 0 0 20px rgba(255, 255, 255, 0.35); }
+}
+
+@keyframes copilotOrbit {
+    0% { transform: rotate(0deg) translateX(42px) rotate(0deg); }
+    100% { transform: rotate(360deg) translateX(42px) rotate(-360deg); }
+}
+
+@keyframes copilotScan {
+    0% { top: 12%; opacity: 0; }
+    18% { opacity: 1; }
+    82% { opacity: 1; }
+    100% { top: 82%; opacity: 0; }
+}
+
+.copilot-stage {
+    min-height: 178px;
+    border: 1px solid rgba(0, 178, 255, 0.25);
+    border-radius: 16px;
+    background: radial-gradient(circle at 50% 42%, rgba(0, 178, 255, 0.16), rgba(12, 16, 24, 0.92) 56%);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.copilot-stage::after {
+    content: "";
+    position: absolute;
+    left: 12%;
+    right: 12%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(0, 227, 150, 0.8), transparent);
+    animation: copilotScan 3.2s ease-in-out infinite;
+}
+
+.copilot-orbit {
+    width: 88px;
+    height: 88px;
+    border: 1px solid rgba(0, 178, 255, 0.32);
+    border-radius: 50%;
+    position: absolute;
+    animation: copilotOrbit 7s linear infinite;
+}
+
+.copilot-orbit::before, .copilot-orbit::after {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #00E396;
+    box-shadow: 0 0 12px #00E396;
+    position: absolute;
+}
+
+.copilot-orbit::before { top: -3px; left: 41px; }
+.copilot-orbit::after { bottom: 10px; right: -3px; background: #FEB019; box-shadow: 0 0 12px #FEB019; }
+
+.copilot-core {
+    width: 58px;
+    height: 58px;
+    border-radius: 18px;
+    background: linear-gradient(145deg, #12C2E9, #0284C7 52%, #123B65);
+    border: 2px solid rgba(255, 255, 255, 0.72);
+    position: relative;
+    z-index: 2;
+    animation: copilotBreathe 2.8s ease-in-out infinite;
+}
+
+.copilot-core::before, .copilot-core::after {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #FFFFFF;
+    position: absolute;
+    top: 19px;
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.9);
+}
+
+.copilot-core::before { left: 14px; }
+.copilot-core::after { right: 14px; }
+
+.copilot-status {
+    position: absolute;
+    bottom: 12px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: #8E9BAE;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
 .auth-header-anim {
     animation: gatewayEntrance 0.85s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -1620,6 +1718,20 @@ elif st.session_state.active_page == "ai_copilot":
         critical_items = analytics_df[analytics_df["reorder_status"] == "RESTOCK NEEDED"]
         perishable_items = analytics_df[analytics_df["expiry_risk"] == "HIGH EXPIRY RISK"]
         class_a_items = analytics_df[analytics_df["abc_class"] == "A"]
+
+        copilot_stage_col, copilot_signal_col = st.columns([1, 1.65])
+        with copilot_stage_col:
+            st.markdown("""
+                <div class='copilot-stage'>
+                    <div class='copilot-orbit'></div>
+                    <div class='copilot-core'></div>
+                    <div class='copilot-status'>Luna online · scanning fleet</div>
+                </div>
+            """, unsafe_allow_html=True)
+        with copilot_signal_col:
+            copilot_signal = "STABLE" if critical_items.empty and perishable_items.empty else "ATTENTION REQUIRED"
+            signal_color = "#00E396" if copilot_signal == "STABLE" else "#FEB019"
+            st.markdown(f"<div class='dribbble-card' style='min-height: 138px;'><div class='card-header-flex'><span class='card-label'>Luna Live Signal</span><span class='chip chip-{'green' if copilot_signal == 'STABLE' else 'amber'}'>{copilot_signal}</span></div><div style='font-size: 1.18rem; font-weight: 800; color: {signal_color}; margin: 12px 0 8px;'>Fleet scan complete</div><div style='font-size: 0.8rem; color: #94A3B8; line-height: 1.6;'>Monitoring <b style='color:#FFF;'>{len(analytics_df)}</b> SKUs across <b style='color:#FFF;'>{analytics_df['vendor'].nunique()}</b> suppliers. Luna found <b style='color:#FFF;'>{len(critical_items)}</b> replenishment risks and <b style='color:#FFF;'>{len(perishable_items)}</b> expiry alerts.</div></div>", unsafe_allow_html=True)
         
         overview = eda_results.get("overview", {})
         cat_info = eda_results.get("categorical", {})
